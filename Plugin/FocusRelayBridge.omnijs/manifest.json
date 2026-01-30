@@ -1,0 +1,14 @@
+{
+  "identifier": "com.focusrelay.bridge",
+  "name": "FocusRelay Bridge",
+  "author": "FocusRelayMCP",
+  "version": "0.1.0",
+  "description": "Bridge for FocusRelayMCP IPC requests",
+  "libraries": [
+    {
+      "identifier": "BridgeLibrary",
+      "name": "BridgeLibrary",
+      "script": "Resources/BridgeLibrary.js"
+    }
+  ]
+}

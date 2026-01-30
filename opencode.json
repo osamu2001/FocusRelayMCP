@@ -1,0 +1,10 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "focus-relay-mcp": {
+      "type": "local",
+      "command": ["/Users/deverman/Documents/swift/omnifocusswiftmcp/.build/release/focus-relay-mcp"],
+      "enabled": true
+    }
+  }
+}
