@@ -13,15 +13,33 @@ A Model Context Protocol (MCP) server for OmniFocus on macOS. Query tasks, proje
 
 ## Installation
 
-### Option A: End User Installation (Pre-built Binary)
+### Option A: Homebrew Installation (Recommended for macOS)
 
-If you don't want to build from source, download a pre-built binary:
+If you have [Homebrew](https://brew.sh) installed, this is the easiest method:
+
+```bash
+# Add the tap (once)
+brew tap deverman/focus-relay-mcp
+
+# Install the MCP server and OmniFocus plugin
+brew install focus-relay-mcp
+
+# Link the OmniFocus plugin (follow the post-install instructions)
+brew link focus-relay-mcp
+```
+
+Then continue with **Step 3: Restart OmniFocus** below.
+
+### Option B: Manual Binary Installation
+
+If you don't want to use Homebrew, download a pre-built binary:
 
 1. Download the latest release from the [Releases](../../releases) page
 2. Extract the binary to a location in your PATH (e.g., `~/bin/` or `/usr/local/bin/`)
-3. Continue with Step 2 below (Install the OmniFocus Plugin)
+3. Download the plugin: `FocusRelayBridge.omnijs` from the same release
+4. Copy the plugin to your OmniFocus plugin folder (see Step 2 below)
 
-### Option B: Developer Installation (Build from Source)
+### Option C: Developer Installation (Build from Source)
 
 #### Prerequisites
 
