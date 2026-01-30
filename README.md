@@ -13,19 +13,31 @@ A Model Context Protocol (MCP) server for OmniFocus on macOS. Query tasks, proje
 
 ## Installation
 
-### Prerequisites
+### Option A: End User Installation (Pre-built Binary)
+
+If you don't want to build from source, download a pre-built binary:
+
+1. Download the latest release from the [Releases](../../releases) page
+2. Extract the binary to a location in your PATH (e.g., `~/bin/` or `/usr/local/bin/`)
+3. Continue with Step 2 below (Install the OmniFocus Plugin)
+
+### Option B: Developer Installation (Build from Source)
+
+#### Prerequisites
 
 - macOS with OmniFocus installed (4.x recommended)
 - Swift 6.2+ toolchain
 - opencode or Claude Desktop (for MCP integration)
 
-### Step 1: Clone and Build
+#### Step 1: Clone and Build
 
 ```bash
 git clone <repository-url>
 cd FocusRelayMCP
 swift build -c release
 ```
+
+The binary will be at `.build/release/focus-relay-mcp`
 
 ### Step 2: Install the OmniFocus Plugin
 
@@ -61,15 +73,35 @@ osascript -e 'tell application "OmniFocus" to quit' && sleep 2 && open -a "OmniF
 
 Or manually: Quit OmniFocus completely and reopen it.
 
-### Step 5: Verify Installation
+### Step 5: First Time Setup (Security Approval)
 
-Run the health check:
+⚠️ **Critical**: The first time you query OmniFocus, a security dialog will appear:
+
+1. Ask your AI assistant: "What should I do today?" (or any OmniFocus query)
+2. OmniFocus will show a security prompt: **"Allow script to control OmniFocus?"**
+3. **Click "Run Script"** (not "Cancel")
+4. If you don't see the prompt, check if OmniFocus is behind other windows
+
+**What happens if you don't approve:**
+- You'll see "Bridge timed out" or "Plugin not responding" errors
+- The MCP server cannot communicate with OmniFocus
+- Queries will fail silently or with timeout errors
+
+**To fix approval issues:**
+- In OmniFocus: **Automation → Configure Plug-ins...**
+- Find "FocusRelay Bridge" in the list
+- Check if it's enabled, or try removing and reinstalling it
+- Restart OmniFocus and try again
+
+### Step 6: Verify Installation
+
+**Recommended**: Ask your AI assistant: "Check OmniFocus bridge health"
+
+**Alternative** (for manual testing - this builds and runs, so it may take time on first execution):
 
 ```bash
 swift run focus-relay-mcp --health-check
 ```
-
-Or through your AI assistant: "Check OmniFocus bridge health"
 
 ## Usage Examples
 
@@ -146,8 +178,23 @@ The timezone is detected from your macOS system settings and passed to OmniFocus
 
 ## Troubleshooting
 
-### "Plugin not responding"
-- **Solution**: Restart OmniFocus completely (not just reload)
+### "Bridge timed out" or "Plugin not responding"
+
+This is the most common issue. Several causes:
+
+1. **Security approval missing** (most common)
+   - **Solution**: See Step 5 (First Time Setup) above. You must click "Run Script" in the OmniFocus security dialog.
+
+2. **Plugin needs reinstallation**
+   - **Solution**: Run `./scripts/install-plugin.sh` again, then restart OmniFocus completely
+
+3. **OmniFocus not properly restarted after plugin update**
+   - **Solution**: Force quit OmniFocus and reopen it
+
+4. **Check plug-in configuration**
+   - In OmniFocus: **Automation → Configure Plug-ins...**
+   - Verify "FocusRelay Bridge" appears in the list and is enabled
+   - If you see errors here, remove the plug-in and reinstall
 
 ### "Wrong time period results"
 - **Cause**: Timezone detection may need refresh after travel
