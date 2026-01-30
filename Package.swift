@@ -13,8 +13,7 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/modelcontextprotocol/swift-sdk.git", from: "0.10.0"),
-        .package(url: "https://github.com/apple/swift-log.git", from: "1.5.0"),
-        .package(url: "https://github.com/apple/swift-testing.git", from: "0.8.0")
+        .package(url: "https://github.com/apple/swift-log.git", from: "1.5.0")
     ],
     targets: [
         .target(
@@ -39,16 +38,14 @@ let package = Package(
         .testTarget(
             name: "OmniFocusCoreTests",
             dependencies: [
-                "OmniFocusCore",
-                .product(name: "Testing", package: "swift-testing")
+                "OmniFocusCore"
             ]
         ),
         .testTarget(
             name: "OmniFocusIntegrationTests",
             dependencies: [
                 "OmniFocusAutomation",
-                "OmniFocusCore",
-                .product(name: "Testing", package: "swift-testing")
+                "OmniFocusCore"
             ]
         )
     ]

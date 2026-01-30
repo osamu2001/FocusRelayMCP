@@ -16,7 +16,7 @@ A Model Context Protocol (MCP) server for OmniFocus on macOS. Query tasks, proje
 ### Prerequisites
 
 - macOS with OmniFocus installed (4.x recommended)
-- Swift 5.9+ toolchain
+- Swift 6.2+ toolchain
 - opencode or Claude Desktop (for MCP integration)
 
 ### Step 1: Clone and Build
