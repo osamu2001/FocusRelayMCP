@@ -122,6 +122,13 @@ brew reinstall focus-relay-mcp
 
 **🔴 COMMON MISTAKE:** Forgetting to update the SHA256 when re-releasing the same version (e.g., fixing a bug and re-tagging v0.9.0-beta). The tarball is rebuilt every time, so the SHA256 will change even if the version number stays the same.
 
+**🔴 TROUBLESHOOTING:** If Homebrew still reports the OLD checksum after you updated the formula, the tap is cached locally. Force a fresh tap:
+```bash
+rm -rf /opt/homebrew/Library/Taps/deverman/homebrew-focus-relay
+brew tap deverman/focus-relay
+brew install focus-relay-mcp
+```
+
 ### 3. GitHub Release Notes
 The GitHub Actions workflow auto-generates release notes, but add:
 - Summary of major changes
