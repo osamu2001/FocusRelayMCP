@@ -46,13 +46,10 @@ If you have [Homebrew](https://brew.sh) installed, this is the easiest method:
 
 ```bash
 # Add the tap (once)
-brew tap deverman/focus-relay-mcp
+brew tap deverman/focus-relay
 
 # Install the MCP server and OmniFocus plugin
 brew install focus-relay-mcp
-
-# Link the OmniFocus plugin (follow the post-install instructions)
-brew link focus-relay-mcp
 ```
 
 Then continue with **Step 3: Restart OmniFocus** below.
@@ -137,16 +134,6 @@ Or manually: Quit OmniFocus completely and reopen it.
 - Find "FocusRelay Bridge" in the list
 - Check if it's enabled, or try removing and reinstalling it
 - Restart OmniFocus and try again
-
-### Step 6: Verify Installation
-
-**Recommended**: Ask your AI assistant: "Check OmniFocus bridge health"
-
-**Alternative** (for manual testing - this builds and runs, so it may take time on first execution):
-
-```bash
-swift run focus-relay-mcp --health-check
-```
 
 ## Usage Examples
 
