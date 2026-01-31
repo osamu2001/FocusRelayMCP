@@ -210,9 +210,10 @@
             return date;
           }
           
-          // Handle staleThreshold - mutually exclusive with deferBefore
-          // Converts staleThreshold to deferBefore date (today - threshold days) in user's timezone
-          if (filter.staleThreshold && !filter.deferBefore) {
+          // Handle staleThreshold - mutually exclusive with deferBefore/completedAfter
+          // For completed tasks: converts to completedAfter date (today - threshold days)
+          // For incomplete tasks: converts to deferBefore date (today - threshold days)
+          if (filter.staleThreshold) {
             const threshold = filter.staleThreshold;
             let days = 30; // default
             switch (threshold) {
@@ -224,7 +225,13 @@
               case "365days": days = 365; break;
             }
             const cutoffDate = new Date(Date.now() - (days * 24 * 60 * 60 * 1000));
-            filter.deferBefore = cutoffDate.toISOString();
+            // If filtering for completed tasks, use completedAfter
+            // Otherwise use deferBefore for stale task detection
+            if (filter.completed === true) {
+              filter.completedAfter = cutoffDate.toISOString();
+            } else if (!filter.deferBefore) {
+              filter.deferBefore = cutoffDate.toISOString();
+            }
           }
 
           // Batch all filters into single pass for performance
@@ -243,6 +250,8 @@
             dueAfter: filter.dueAfter ? parseFilterDate(filter.dueAfter, response.warnings) : null,
             deferBefore: filter.deferBefore ? parseFilterDate(filter.deferBefore, response.warnings) : null,
             deferAfter: filter.deferAfter ? parseFilterDate(filter.deferAfter, response.warnings) : null,
+            completedBefore: filter.completedBefore ? parseFilterDate(filter.completedBefore, response.warnings) : null,
+            completedAfter: filter.completedAfter ? parseFilterDate(filter.completedAfter, response.warnings) : null,
             
             // Duration filters
             maxEstimatedMinutes: filter.maxEstimatedMinutes,
@@ -298,6 +307,16 @@
             if (filterState.deferAfter) {
               const defer = getTaskDateTimestamp(t, task => task.deferDate);
               if (defer === null || defer < filterState.deferAfter.getTime()) continue;
+            }
+            
+            // Completion date checks
+            if (filterState.completedBefore) {
+              const completed = getTaskDateTimestamp(t, task => task.completionDate);
+              if (completed === null || completed > filterState.completedBefore.getTime()) continue;
+            }
+            if (filterState.completedAfter) {
+              const completed = getTaskDateTimestamp(t, task => task.completionDate);
+              if (completed === null || completed < filterState.completedAfter.getTime()) continue;
             }
             
             // Duration checks
