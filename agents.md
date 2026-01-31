@@ -72,6 +72,47 @@ The MCP server implements an **actor-based caching layer** (`CatalogCache`) for 
 - Projects/Tags queries: ~300ms → ~10ms (30x faster on cache hit)
 - Task queries: No caching (always fresh data)
 
+## Release Process
+
+When creating a new release (via GitHub Actions or manually), follow these steps:
+
+### 1. Create Release Tag
+```bash
+git tag -a vX.X.X -m "Release vX.X.X: Description of changes"
+git push origin vX.X.X
+```
+
+### 2. Update Homebrew Formula (CRITICAL)
+The Homebrew tap must be updated with the new SHA256:
+
+1. **Get the new SHA256** from the release:
+   ```bash
+   curl -sL https://github.com/deverman/FocusRelayMCP/releases/download/vX.X.X/focus-relay-mcp-X.X.X.sha256
+   ```
+
+2. **Update the formula** in `deverman/homebrew-focus-relay`:
+   ```bash
+   cd ~/homebrew-focus-relay  # or wherever you cloned it
+   # Edit focus-relay-mcp.rb and update:
+   # - version number in URL
+   # - sha256 value
+   git add focus-relay-mcp.rb
+   git commit -m "Update formula to vX.X.X"
+   git push origin main
+   ```
+
+3. **Verify the tap works**:
+   ```bash
+   brew update
+   brew install focus-relay-mcp
+   ```
+
+### 3. GitHub Release Notes
+The GitHub Actions workflow auto-generates release notes, but add:
+- Summary of major changes
+- Breaking changes (if any)
+- Link to CHANGELOG.md
+
 ### Future Improvements
 - Add task caching with shorter TTL (30-60 seconds)
 - Implement cache warming for startup
