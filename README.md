@@ -2,6 +2,10 @@
 
 A Model Context Protocol (MCP) server for OmniFocus on macOS. Query tasks, projects, and tags using natural language through AI assistants like Claude.
 
+![Demo: Ask your OmniFocus tasks naturally](imgs/omnifocusaiquery.gif)
+
+*Just ask "What should I do today?" and get instant, filtered results.*
+
 ## What You Can Do
 
 Stop clicking through endless task lists. Just ask:
