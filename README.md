@@ -2,14 +2,41 @@
 
 A Model Context Protocol (MCP) server for OmniFocus on macOS. Query tasks, projects, and tags using natural language through AI assistants like Claude.
 
+## What You Can Do
+
+Stop clicking through endless task lists. Just ask:
+
+**Daily Planning**
+- "What should I be doing today?" - Tasks due today, respecting your timezone
+- "What about this morning?" - Available tasks for 6am-12pm
+- "What can I do this afternoon?" - Tasks for 12pm-6pm  
+- "What should I work on this evening?" - Tasks for 6pm-10pm
+
+**Project Management**
+- "What projects have no next actions?" - Find stalled projects
+- "Show me my stalled projects" - Projects with tasks but nothing available
+- "What tasks do I have in my [Project Name] project?"
+
+**Context Switching**
+- "What contexts do I have available?" - See which tags have actionable tasks
+- "Show me tasks I can do on my Mac" - Filter by context
+- "What calls do I need to make?"
+
+**Task Discovery**
+- "What have I been avoiding?" - Tasks deferred 365+ days ago
+- "What am I procrastinating on?" - Tasks deferred recently
+- "Find my flagged items"
+- "What did I accomplish this week?"
+
 ## Features
 
-- **Time-based Queries**: "What should I do today?", "What about this morning/afternoon/evening?"
-- **Project Health**: "What projects have no next actions?", "Show me stalled projects"
-- **Context Awareness**: "What contexts do I have available?" (Mac, Calls, Online, etc.)
-- **Stale Task Detection**: "What have I been avoiding?", "What am I procrastinating on?"
-- **Smart Filtering**: By tags, due dates, defer dates, completion status, duration, and more
-- **Timezone Aware**: Automatically detects your local timezone for accurate time queries
+- **Time-based Queries**: Natural language time period filtering
+- **Project Health**: Detect stalled projects and missing next actions
+- **Context Awareness**: Tag-based filtering and availability
+- **Stale Task Detection**: 7d/30d/90d/180d/365d threshold filtering
+- **Smart Filtering**: By tags, due dates, defer dates, completion, duration
+- **Timezone Aware**: Automatic local timezone detection and handling
+- **High Performance**: Single-pass filtering with early exit optimization
 
 ## Installation
 
