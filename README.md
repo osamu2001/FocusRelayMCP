@@ -45,7 +45,7 @@ If you don't want to use Homebrew, download a pre-built binary:
 
 - macOS with OmniFocus installed (4.x recommended)
 - Swift 6.2+ toolchain
-- opencode or Claude Desktop (for MCP integration)
+- This has been tested on [opencode](https://opencode.ai) but should work with Claude Desktop or other tools with MCP integration
 
 #### Step 1: Clone and Build
 
