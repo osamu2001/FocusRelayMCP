@@ -26,7 +26,7 @@ struct FocusRelayMCPMain {
             let tools = [
                 Tool(
                     name: "list_tasks",
-                    description: "Query OmniFocus tasks with powerful filtering. IMPORTANT: Default fields only return 'id' and 'name'. To see completion dates, due dates, or other fields, you MUST explicitly request them in the 'fields' parameter.\n\nCRITICAL FILTERING HINTS:\n- To find tasks completed TODAY: Use completed=true AND staleThreshold='1days' AND request fields=['completionDate', 'completed', 'name']\n- To find available tasks: Use availableOnly=true\n- For time-of-day: Morning=06:00-12:00, Afternoon=12:00-18:00, Evening=18:00-22:00 (convert to ISO8601 UTC)\n\nTime formats are ISO8601 (YYYY-MM-DDTHH:MM:SSZ). All datetimes must be in UTC.",
+                    description: "Query OmniFocus tasks with powerful filtering including completion dates, due dates, and availability.\n\nFILTERING BY COMPLETION DATE (for 'what did I complete today?' questions):\n- Method 1 - Use completedAfter/completedBefore with ISO8601 dates: {\"completedAfter\": \"2026-01-31T00:00:00Z\", \"completedBefore\": \"2026-02-01T00:00:00Z\"}\n- Method 2 - Use staleThreshold with completed=true: {\"completed\": true, \"staleThreshold\": \"1days\"} for today, \"7days\" for this week\n- IMPORTANT: Always include 'completionDate' in the fields parameter to see when tasks were completed\n\nFILTERING BY AVAILABILITY (for 'what should I do?' questions):\n- Use availableOnly=true to see only actionable tasks\n- Use deferAfter/deferBefore for time-of-day filtering (Morning=06:00-12:00, etc.)\n\nTime formats: ISO8601 UTC (YYYY-MM-DDTHH:MM:SSZ). Default fields: only 'id' and 'name'.",
                     inputSchema: toolSchema(
                         properties: [
                             "filter": .object([
@@ -35,7 +35,17 @@ struct FocusRelayMCPMain {
                                 "properties": .object([
                                     "completed": propertySchema(
                                         type: "boolean",
-                                        description: "Filter by completion status. CRITICAL: When true, combine with staleThreshold='1days' to get today's completions, and ALWAYS request 'completionDate' in fields"
+                                        description: "Filter by completion status. Use with staleThreshold to filter completed tasks by date (e.g., completed=true + staleThreshold='1days' = today's completions)"
+                                    ),
+                                    "completedAfter": propertySchema(
+                                        type: "string",
+                                        description: "Filter tasks completed AFTER this date/time (inclusive). Use ISO8601 UTC format. Example: To get today's completions, use today's date at 00:00:00Z. Can be used with or without completed=true.",
+                                        examples: [.string("2026-01-31T00:00:00Z")]
+                                    ),
+                                    "completedBefore": propertySchema(
+                                        type: "string",
+                                        description: "Filter tasks completed BEFORE this date/time (exclusive). Use ISO8601 UTC format. Example: To get today's completions, use tomorrow's date at 00:00:00Z as the upper bound.",
+                                        examples: [.string("2026-02-01T00:00:00Z")]
                                     ),
                                     "flagged": propertySchema(type: "boolean", description: "Filter flagged tasks only"),
                                     "availableOnly": propertySchema(type: "boolean", description: "Only show tasks that are currently available (not blocked by defer dates)"),
