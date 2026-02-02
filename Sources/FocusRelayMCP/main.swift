@@ -97,7 +97,7 @@ struct FocusRelayMCPMain {
                             ]),
                             "fields": .object([
                                 "type": .string("array"),
-                                "description": .string("CRITICAL: Specify which fields to return. DEFAULT ONLY includes 'id' and 'name'. Common fields: 'completionDate' (when task was completed), 'dueDate', 'deferDate', 'completed', 'projectName', 'tagNames', 'available', 'flagged'. ALWAYS include fields you need to answer the user's question."),
+                                "description": .string("CRITICAL: Specify which fields to return. DEFAULT ONLY includes 'id' and 'name'.\n\nIMPORTANT FIELD NAMES (case-sensitive):\n- 'completionDate' - when task was completed (NOT 'completedDate')\n- 'dueDate' - when task is due\n- 'deferDate' - when task becomes available\n- 'completed' - true/false completion status\n- 'projectName' - name of the project\n- 'tagNames' - list of tags\n- 'available' - whether task is actionable now\n- 'flagged' - whether task is flagged\n\nALWAYS include the fields you need to answer the user's question."),
                                 "items": .object(["type": .string("string")]),
                                 "examples": .array([
                                     .array([.string("id"), .string("name"), .string("completionDate"), .string("completed"), .string("projectName")]),
