@@ -59,12 +59,25 @@ public struct ProjectTaskSummary: Codable, Sendable {
     }
 }
 
+public struct ReviewInterval: Codable, Sendable {
+    public let steps: Int?
+    public let unit: String?
+
+    public init(steps: Int? = nil, unit: String? = nil) {
+        self.steps = steps
+        self.unit = unit
+    }
+}
+
 public struct ProjectItem: Codable, Sendable {
     public let id: String
     public let name: String
     public let note: String?
     public let status: String
     public let flagged: Bool
+    public let lastReviewDate: Date?
+    public let nextReviewDate: Date?
+    public let reviewInterval: ReviewInterval?
     public let availableTasks: Int?
     public let remainingTasks: Int?
     public let completedTasks: Int?
@@ -81,6 +94,9 @@ public struct ProjectItem: Codable, Sendable {
         note: String? = nil,
         status: String,
         flagged: Bool,
+        lastReviewDate: Date? = nil,
+        nextReviewDate: Date? = nil,
+        reviewInterval: ReviewInterval? = nil,
         availableTasks: Int? = nil,
         remainingTasks: Int? = nil,
         completedTasks: Int? = nil,
@@ -96,6 +112,9 @@ public struct ProjectItem: Codable, Sendable {
         self.note = note
         self.status = status
         self.flagged = flagged
+        self.lastReviewDate = lastReviewDate
+        self.nextReviewDate = nextReviewDate
+        self.reviewInterval = reviewInterval
         self.availableTasks = availableTasks
         self.remainingTasks = remainingTasks
         self.completedTasks = completedTasks
@@ -185,13 +204,22 @@ public struct TagFilter: Codable, Sendable {
 public struct ProjectFilter: Codable, Sendable {
     public var statusFilter: String?
     public var includeTaskCounts: Bool?
+    public var reviewDueBefore: Date?
+    public var reviewDueAfter: Date?
+    public var reviewPerspective: Bool?
 
     public init(
         statusFilter: String? = nil,
-        includeTaskCounts: Bool? = nil
+        includeTaskCounts: Bool? = nil,
+        reviewDueBefore: Date? = nil,
+        reviewDueAfter: Date? = nil,
+        reviewPerspective: Bool? = nil
     ) {
         self.statusFilter = statusFilter
         self.includeTaskCounts = includeTaskCounts
+        self.reviewDueBefore = reviewDueBefore
+        self.reviewDueAfter = reviewDueAfter
+        self.reviewPerspective = reviewPerspective
     }
 }
 
@@ -289,7 +317,15 @@ public struct PageRequest: Codable, Sendable {
 public protocol OmniFocusService: Sendable {
     func listTasks(filter: TaskFilter, page: PageRequest, fields: [String]?) async throws -> Page<TaskItem>
     func getTask(id: String, fields: [String]?) async throws -> TaskItem
-    func listProjects(page: PageRequest, statusFilter: String?, includeTaskCounts: Bool, fields: [String]?) async throws -> Page<ProjectItem>
+    func listProjects(
+        page: PageRequest,
+        statusFilter: String?,
+        includeTaskCounts: Bool,
+        reviewDueBefore: Date?,
+        reviewDueAfter: Date?,
+        reviewPerspective: Bool,
+        fields: [String]?
+    ) async throws -> Page<ProjectItem>
     func listTags(page: PageRequest, statusFilter: String?, includeTaskCounts: Bool) async throws -> Page<TagItem>
     func getTaskCounts(filter: TaskFilter) async throws -> TaskCounts
     func getProjectCounts(filter: TaskFilter) async throws -> ProjectCounts

@@ -22,12 +22,20 @@ struct ProjectTaskSummaryPayload: Codable {
     let name: String?
 }
 
+struct ReviewIntervalPayload: Codable {
+    let steps: Int?
+    let unit: String?
+}
+
 struct ProjectItemPayload: Codable {
     let id: String?
     let name: String?
     let note: String?
     let status: String?
     let flagged: Bool?
+    let lastReviewDate: Date?
+    let nextReviewDate: Date?
+    let reviewInterval: ReviewIntervalPayload?
     let availableTasks: Int?
     let remainingTasks: Int?
     let completedTasks: Int?
