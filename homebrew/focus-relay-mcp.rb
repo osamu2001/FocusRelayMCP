@@ -12,7 +12,7 @@ class FocusRelayMcp < Formula
   depends_on :macos
 
   def install
-    bin.install "focus-relay-mcp"
+    bin.install "focusrelay"
     (pkgshare/"Plugin").install "FocusRelayBridge.omnijs"
   end
 
@@ -20,7 +20,7 @@ class FocusRelayMcp < Formula
     <<~EOS
       ✅ FocusRelayMCP has been installed!
 
-      📍 Binary location: #{opt_bin}/focus-relay-mcp
+      📍 Binary location: #{opt_bin}/focusrelay
       🔌 Plugin location: #{pkgshare}/Plugin/FocusRelayBridge.omnijs
 
       🔄 NEXT STEPS:
@@ -32,7 +32,7 @@ class FocusRelayMcp < Formula
       2. RESTART OmniFocus completely (Cmd+Q, then reopen)
 
       3. CONFIGURE your MCP client:
-         Add to your config: #{opt_bin}/focus-relay-mcp
+         Add to your config: #{opt_bin}/focusrelay serve
 
       ⚠️  FIRST TIME SETUP:
       When you run your first query, click "Run Script" in the security dialog.
@@ -42,6 +42,6 @@ class FocusRelayMcp < Formula
   end
 
   test do
-    system bin/"focus-relay-mcp", "--help"
+    system bin/"focusrelay", "--help"
   end
 end

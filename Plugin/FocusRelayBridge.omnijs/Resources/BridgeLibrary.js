@@ -80,7 +80,7 @@
         completed: hasField("completed") ? Boolean(t.completed) : null,
         flagged: hasField("flagged") ? Boolean(t.flagged) : null,
         estimatedMinutes: hasField("estimatedMinutes") ? t.estimatedMinutes : null,
-        available: hasField("available") ? isAvailable(t) : null
+        available: hasField("available") ? isTaskAvailable(t) : null
       };
     }
 
@@ -369,11 +369,41 @@
           const filter = request.projectFilter || request.filter || {};
           const statusFilter = (typeof filter.statusFilter === "string") ? filter.statusFilter.toLowerCase() : "active";
           const includeTaskCounts = filter.includeTaskCounts === true;
+          const reviewPerspective = filter.reviewPerspective === true;
+
+          function parseFilterDate(dateString, warnings) {
+            if (!dateString || typeof dateString !== "string") return null;
+            const parsed = new Date(dateString);
+            if (isNaN(parsed.getTime())) {
+              warnings.push("Invalid date filter value: " + dateString);
+              return null;
+            }
+            return parsed;
+          }
+
+          function getProjectDateTimestamp(project, dateGetter) {
+            const date = safe(() => dateGetter(project));
+            if (!date) return null;
+            if (typeof date.getTime !== "function") return null;
+            const ts = date.getTime();
+            if (isNaN(ts)) return null;
+            return ts;
+          }
+
+          const reviewDueBefore = parseFilterDate(filter.reviewDueBefore, response.warnings);
+          const reviewDueAfter = parseFilterDate(filter.reviewDueAfter, response.warnings);
+          const reviewCutoff = reviewDueBefore || (reviewPerspective ? new Date() : null);
           
           let projects = flattenedProjects;
           
           // Filter by status using Project.Status enum
-          if (statusFilter !== "all") {
+          if (reviewPerspective) {
+            projects = projects.filter(p => {
+              const status = safe(() => p.status);
+              if (!status) return false;
+              return status !== Project.Status.Dropped && status !== Project.Status.Done;
+            });
+          } else if (statusFilter !== "all") {
             projects = projects.filter(p => {
               const status = safe(() => p.status);
               if (!status) return false;
@@ -390,6 +420,16 @@
               return true;
             });
           }
+
+          if (reviewCutoff || reviewDueAfter) {
+            projects = projects.filter(p => {
+              const nextReview = getProjectDateTimestamp(p, project => project.nextReviewDate);
+              if (nextReview === null) return false;
+              if (reviewCutoff && nextReview > reviewCutoff.getTime()) return false;
+              if (reviewDueAfter && nextReview < reviewDueAfter.getTime()) return false;
+              return true;
+            });
+          }
           
           const limit = request.page && request.page.limit ? request.page.limit : 150;
           let offset = 0;
@@ -401,6 +441,19 @@
           const slice = projects.slice(offset, offset + limit);
           
           const items = slice.map(p => {
+            const lastReviewDate = hasField("lastReviewDate") ? safe(() => p.lastReviewDate) : null;
+            const nextReviewDate = hasField("nextReviewDate") ? safe(() => p.nextReviewDate) : null;
+            const reviewInterval = hasField("reviewInterval") ? safe(() => p.reviewInterval) : null;
+            let reviewIntervalPayload = null;
+            if (reviewInterval) {
+              const steps = safe(() => reviewInterval.steps);
+              const unit = safe(() => reviewInterval.unit);
+              reviewIntervalPayload = {
+                steps: (typeof steps === "number" && isFinite(steps)) ? Math.trunc(steps) : null,
+                unit: unit ? String(unit) : null
+              };
+            }
+
             // Convert Project.Status enum to string
             function getProjectStatusString(project) {
               const status = safe(() => project.status);
@@ -424,7 +477,10 @@
               name: hasField("name") ? String(safe(() => p.name) || "") : null,
               note: hasField("note") ? safe(() => p.note) : null,
               status: hasField("status") ? getProjectStatusString(p) : null,
-              flagged: hasField("flagged") ? Boolean(p.flagged) : null
+              flagged: hasField("flagged") ? Boolean(p.flagged) : null,
+              lastReviewDate: hasField("lastReviewDate") && lastReviewDate ? lastReviewDate.toISOString() : null,
+              nextReviewDate: hasField("nextReviewDate") && nextReviewDate ? nextReviewDate.toISOString() : null,
+              reviewInterval: hasField("reviewInterval") ? reviewIntervalPayload : null
             };
             
             // Calculate task counts from flattenedTasks

@@ -89,11 +89,27 @@ func bridgeProjectsPagingLive() throws {
     }
 
     let client = BridgeClient()
-    let first = try client.listProjects(page: PageRequest(limit: 2), statusFilter: "active", includeTaskCounts: false, fields: ["id", "name"])
+    let first = try client.listProjects(
+        page: PageRequest(limit: 2),
+        statusFilter: "active",
+        includeTaskCounts: false,
+        reviewDueBefore: nil,
+        reviewDueAfter: nil,
+        reviewPerspective: false,
+        fields: ["id", "name"]
+    )
     #expect(first.items.count <= 2)
     #expect((first.totalCount ?? 0) >= first.items.count)
     if let cursor = first.nextCursor {
-        let second = try client.listProjects(page: PageRequest(limit: 2, cursor: cursor), statusFilter: "active", includeTaskCounts: false, fields: ["id", "name"])
+        let second = try client.listProjects(
+            page: PageRequest(limit: 2, cursor: cursor),
+            statusFilter: "active",
+            includeTaskCounts: false,
+            reviewDueBefore: nil,
+            reviewDueAfter: nil,
+            reviewPerspective: false,
+            fields: ["id", "name"]
+        )
         #expect(second.items.count <= 2)
     }
 }
