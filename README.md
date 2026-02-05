@@ -83,7 +83,7 @@ cd FocusRelayMCP
 swift build -c release
 ```
 
-The binary will be at `.build/release/focus-relay-mcp`
+The binary will be at `.build/release/focusrelay` (CLI + MCP server).
 
 ### Step 2: Install the OmniFocus Plugin
 
@@ -100,14 +100,16 @@ Add to your opencode.json or Claude Desktop config:
 ```json
 {
   "mcp": {
-    "focus-relay-mcp": {
+    "focusrelay": {
       "type": "local",
-      "command": ["/path/to/FocusRelayMCP/.build/release/focus-relay-mcp"],
+      "command": ["/path/to/FocusRelayMCP/.build/release/focusrelay", "serve"],
       "enabled": true
     }
   }
 }
 ```
+
+Note: `focusrelay` without arguments shows help; use `focusrelay serve` to run the MCP server.
 
 ### Step 4: Restart OmniFocus
 
@@ -138,6 +140,27 @@ Or manually: Quit OmniFocus completely and reopen it.
 - Find "FocusRelay Bridge" in the list
 - Check if it's enabled, or try removing and reinstalling it
 - Restart OmniFocus and try again
+
+## CLI Usage
+
+The `focusrelay` binary provides command-line equivalents of the MCP tools.
+Run `focusrelay --help` for the full command list.
+
+```bash
+# List tasks with selected fields
+focusrelay list-tasks --fields id,name,completionDate --completed true --stale-threshold 7days
+
+# List projects with task counts
+focusrelay list-projects --status active --include-task-counts
+
+# Fetch a single task by ID
+focusrelay get-task <task-id> --fields id,name,note
+
+# Check bridge health
+focusrelay bridge-health-check
+```
+
+Dates should be ISO8601 (e.g. `2026-02-04T12:00:00Z`).
 
 ## Usage Examples
 

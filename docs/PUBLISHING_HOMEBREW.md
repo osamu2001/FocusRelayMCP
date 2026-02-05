@@ -3,7 +3,8 @@
 ## Prerequisites
 
 1. **GitHub Release Created** with:
-   - Binary: `focus-relay-mcp` (from `.build/release/`)
+- Binary: `focusrelay` (from `.build/release/`)
+   - Run the MCP server with `focusrelay serve` (no-args shows help)
    - Plugin: `FocusRelayBridge.omnijs` (from `Plugin/`)
    - Packaged as: `focus-relay-mcp-1.0.0.tar.gz`
    
@@ -78,6 +79,8 @@ The formula automatically:
 - Shows configuration instructions
 ```
 
+For MCP clients, the command should be `focusrelay serve`.
+
 ### Version Updates
 
 When you release v1.0.1:
@@ -97,7 +100,7 @@ When you release v1.0.1:
 Before publishing, verify:
 
 - [ ] Formula installs without errors
-- [ ] Binary works: `focus-relay-mcp --help`
+- [ ] Binary works: `focusrelay --help`
 - [ ] Plugin installs to correct OmniFocus directory
 - [ ] Caveats are displayed clearly
 - [ ] Uninstall works: `brew uninstall focus-relay-mcp`

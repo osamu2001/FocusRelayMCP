@@ -3,10 +3,10 @@ import Logging
 import MCP
 import OmniFocusAutomation
 import OmniFocusCore
+import FocusRelayOutput
 
-@main
-struct FocusRelayMCPMain {
-    static func main() async throws {
+public enum FocusRelayServer {
+    public static func run() async throws {
         LoggingSystem.bootstrap { label in
             var handler = StreamLogHandler.standardOutput(label: label)
             handler.logLevel = .info
@@ -126,7 +126,7 @@ struct FocusRelayMCPMain {
                 ),
                 Tool(
                     name: "list_projects",
-                    description: "List OmniFocus projects with pagination and filtering. Projects have a status (active, onHold, dropped, done) and can optionally include task counts. Use statusFilter to show only projects with a specific status, and includeTaskCounts to get the number of tasks associated with each project.",
+                    description: "List OmniFocus projects with pagination and filtering. Projects have a status (active, onHold, dropped, done) and can optionally include task counts. Use statusFilter to show only projects with a specific status, and includeTaskCounts to get the number of tasks associated with each project.\n\nREVIEW PERSPECTIVE:\n- Use reviewPerspective=true to return projects pending review (excludes dropped/done and applies nextReviewDate <= now when reviewDueBefore is omitted).\n- Optionally set reviewDueBefore/reviewDueAfter (ISO8601 UTC) to bound nextReviewDate.",
                     inputSchema: toolSchema(
                         properties: [
                             "page": .object([
@@ -147,8 +147,24 @@ struct FocusRelayMCPMain {
                                 "description": .string("Include task counts for each project (available, remaining, completed, dropped, total)"),
                                 "default": .bool(false)
                             ]),
+                            "reviewPerspective": .object([
+                                "type": .string("boolean"),
+                                "description": .string("If true, apply OmniFocus Review perspective defaults: exclude dropped/done and require nextReviewDate <= now when reviewDueBefore is omitted"),
+                                "default": .bool(false)
+                            ]),
+                            "reviewDueBefore": propertySchema(
+                                type: "string",
+                                description: "ISO8601 datetime. Only include projects whose nextReviewDate is before or equal to this time. If reviewPerspective=true and omitted, defaults to now.",
+                                examples: [.string("2026-02-04T12:00:00Z")]
+                            ),
+                            "reviewDueAfter": propertySchema(
+                                type: "string",
+                                description: "ISO8601 datetime. Only include projects whose nextReviewDate is after or equal to this time.",
+                                examples: [.string("2026-02-04T00:00:00Z")]
+                            ),
                             "fields": .object([
                                 "type": .string("array"),
+                                "description": .string("Specify which fields to return. IMPORTANT review fields: 'lastReviewDate', 'nextReviewDate', 'reviewInterval' (object with steps/unit)."),
                                 "items": .object(["type": .string("string")])
                             ])
                         ]
@@ -269,9 +285,20 @@ struct FocusRelayMCPMain {
                     let page = hasPage ? (try decodeArgument(PageRequest.self, from: params.arguments, key: "page") ?? PageRequest(limit: 150)) : PageRequest(limit: 150)
                     let statusFilter = try decodeArgument(String.self, from: params.arguments, key: "statusFilter") ?? "active"
                     let includeTaskCounts = try decodeArgument(Bool.self, from: params.arguments, key: "includeTaskCounts") ?? false
+                    let reviewDueBefore = try decodeArgument(Date.self, from: params.arguments, key: "reviewDueBefore")
+                    let reviewDueAfter = try decodeArgument(Date.self, from: params.arguments, key: "reviewDueAfter")
+                    let reviewPerspective = try decodeArgument(Bool.self, from: params.arguments, key: "reviewPerspective") ?? false
                     let requestedFields = decodeStringArray(params.arguments?["fields"]) ?? []
                     let fields = requestedFields.isEmpty ? ["id", "name"] : requestedFields
-                    let result = try await service.listProjects(page: page, statusFilter: statusFilter, includeTaskCounts: includeTaskCounts, fields: fields)
+                    let result = try await service.listProjects(
+                        page: page,
+                        statusFilter: statusFilter,
+                        includeTaskCounts: includeTaskCounts,
+                        reviewDueBefore: reviewDueBefore,
+                        reviewDueAfter: reviewDueAfter,
+                        reviewPerspective: reviewPerspective,
+                        fields: fields
+                    )
                     let fieldSet = Set(fields)
                     let items = result.items.map { makeProjectOutput(from: $0, fields: fieldSet, includeTaskCounts: includeTaskCounts) }
                     let output = PageOutput(items: items, nextCursor: result.nextCursor, totalCount: result.totalCount)
@@ -366,109 +393,4 @@ private func decodeStringArray(_ value: Value?) -> [String]? {
     let decoder = JSONDecoder()
     decoder.dateDecodingStrategy = .iso8601
     return try? JSONDecoder().decode([String].self, from: data)
-}
-
-private func encodeJSON<T: Encodable>(_ value: T) throws -> String {
-    let encoder = JSONEncoder()
-    encoder.dateEncodingStrategy = .iso8601
-    let data = try encoder.encode(value)
-    return String(decoding: data, as: UTF8.self)
-}
-
-private struct TaskOutput: Encodable {
-    let id: String?
-    let name: String?
-    let note: String?
-    let projectID: String?
-    let projectName: String?
-    let tagIDs: [String]?
-    let tagNames: [String]?
-    let dueDate: Date?
-    let deferDate: Date?
-    let completionDate: Date?
-    let completed: Bool?
-    let flagged: Bool?
-    let estimatedMinutes: Int?
-    let available: Bool?
-}
-
-private struct PageOutput<T: Encodable>: Encodable {
-    let items: [T]
-    let nextCursor: String?
-    let totalCount: Int?
-}
-
-private struct ProjectOutput: Encodable {
-    let id: String?
-    let name: String?
-    let note: String?
-    let status: String?
-    let flagged: Bool?
-    let availableTasks: Int?
-    let remainingTasks: Int?
-    let completedTasks: Int?
-    let droppedTasks: Int?
-    let totalTasks: Int?
-    let hasChildren: Bool?
-    let nextTask: ProjectTaskSummary?
-    let containsSingletonActions: Bool?
-    let isStalled: Bool?
-}
-
-private struct TagOutput: Encodable {
-    let id: String
-    let name: String
-    let status: String?
-    let availableTasks: Int?
-    let remainingTasks: Int?
-    let totalTasks: Int?
-}
-
-private func makeTaskOutput(from task: TaskItem, fields: Set<String>) -> TaskOutput {
-    TaskOutput(
-        id: fields.contains("id") ? task.id : nil,
-        name: fields.contains("name") ? task.name : nil,
-        note: fields.contains("note") ? task.note : nil,
-        projectID: fields.contains("projectID") ? task.projectID : nil,
-        projectName: fields.contains("projectName") ? task.projectName : nil,
-        tagIDs: fields.contains("tagIDs") ? task.tagIDs : nil,
-        tagNames: fields.contains("tagNames") ? task.tagNames : nil,
-        dueDate: fields.contains("dueDate") ? task.dueDate : nil,
-        deferDate: fields.contains("deferDate") ? task.deferDate : nil,
-        completionDate: fields.contains("completionDate") ? task.completionDate : nil,
-        completed: fields.contains("completed") ? task.completed : nil,
-        flagged: fields.contains("flagged") ? task.flagged : nil,
-        estimatedMinutes: fields.contains("estimatedMinutes") ? task.estimatedMinutes : nil,
-        available: fields.contains("available") ? task.available : nil
-    )
-}
-
-private func makeProjectOutput(from project: ProjectItem, fields: Set<String>, includeTaskCounts: Bool) -> ProjectOutput {
-    ProjectOutput(
-        id: fields.contains("id") ? project.id : nil,
-        name: fields.contains("name") ? project.name : nil,
-        note: fields.contains("note") ? project.note : nil,
-        status: fields.contains("status") ? project.status : nil,
-        flagged: fields.contains("flagged") ? project.flagged : nil,
-        availableTasks: includeTaskCounts ? project.availableTasks : nil,
-        remainingTasks: includeTaskCounts ? project.remainingTasks : nil,
-        completedTasks: includeTaskCounts ? project.completedTasks : nil,
-        droppedTasks: includeTaskCounts ? project.droppedTasks : nil,
-        totalTasks: includeTaskCounts ? project.totalTasks : nil,
-        hasChildren: fields.contains("hasChildren") ? project.hasChildren : nil,
-        nextTask: fields.contains("nextTask") ? project.nextTask : nil,
-        containsSingletonActions: fields.contains("containsSingletonActions") ? project.containsSingletonActions : nil,
-        isStalled: fields.contains("isStalled") ? project.isStalled : nil
-    )
-}
-
-private func makeTagOutput(from tag: TagItem, fields: Set<String>, includeTaskCounts: Bool) -> TagOutput {
-    TagOutput(
-        id: tag.id,
-        name: tag.name,
-        status: fields.contains("status") ? tag.status : nil,
-        availableTasks: includeTaskCounts ? tag.availableTasks : nil,
-        remainingTasks: includeTaskCounts ? tag.remainingTasks : nil,
-        totalTasks: includeTaskCounts ? tag.totalTasks : nil
-    )
 }

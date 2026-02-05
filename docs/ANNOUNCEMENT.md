@@ -65,6 +65,12 @@ brew tap deverman/focus-relay
 brew install focus-relay-mcp
 ```
 
+The installed binary is `focusrelay`. Run the MCP server with:
+
+```bash
+focusrelay serve
+```
+
 Or download from GitHub: https://github.com/deverman/FocusRelayMCP/releases
 
 **Important:** First time you run a query, OmniFocus will ask you to approve the automation script. Click "Run Script" (this is normal for security).
@@ -87,7 +93,7 @@ Questions? Issues? https://github.com/deverman/FocusRelayMCP
 - Description: Query OmniFocus tasks via natural language
 - Repository: https://github.com/deverman/FocusRelayMCP
 - Tags: productivity, gtd, macos, omnifocus
-- Installation: brew install focus-relay-mcp
+- Installation: brew install focus-relay-mcp (binary is `focusrelay`)
 
 ### 2. GitHub MCP Registry (GitHub Blog)
 **URL:** https://github.com/modelcontextprotocol/registry
