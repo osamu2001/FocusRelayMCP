@@ -80,7 +80,7 @@
         completed: hasField("completed") ? Boolean(t.completed) : null,
         flagged: hasField("flagged") ? Boolean(t.flagged) : null,
         estimatedMinutes: hasField("estimatedMinutes") ? t.estimatedMinutes : null,
-        available: hasField("available") ? isAvailable(t) : null
+        available: hasField("available") ? isTaskAvailable(t) : null
       };
     }
 

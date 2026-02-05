@@ -3,7 +3,7 @@
   "mcp": {
     "focusrelay": {
       "type": "local",
-      "command": ["/usr/local/bin/focusrelay", "serve"],
+      "command": ["focusrelay", "serve"],
       "enabled": true
     }
   }

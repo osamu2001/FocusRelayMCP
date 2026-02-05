@@ -28,7 +28,7 @@ struct FocusRelayCLI: AsyncParsableCommand {
 struct Serve: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "serve",
-        abstract: "Run the MCP server (default).",
+        abstract: "Run the MCP server.",
         aliases: ["mcp", "server"]
     )
 
