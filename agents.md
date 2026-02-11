@@ -134,6 +134,7 @@ The GitHub Actions workflow auto-generates release notes, but add:
 - Summary of major changes
 - Breaking changes (if any)
 - Link to CHANGELOG.md
+- **Contributor mentions**: When including changes from pull requests, @mention the contributor (e.g., "Thanks to @username for the fix") to give credit and notify them
 
 ### Future Improvements
 - Add task caching with shorter TTL (30-60 seconds)
