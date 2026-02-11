@@ -96,6 +96,9 @@ func bridgeProjectsPagingLive() throws {
         reviewDueBefore: nil,
         reviewDueAfter: nil,
         reviewPerspective: false,
+        completed: nil,
+        completedBefore: nil,
+        completedAfter: nil,
         fields: ["id", "name"]
     )
     #expect(first.items.count <= 2)
@@ -108,6 +111,9 @@ func bridgeProjectsPagingLive() throws {
             reviewDueBefore: nil,
             reviewDueAfter: nil,
             reviewPerspective: false,
+            completed: nil,
+            completedBefore: nil,
+            completedAfter: nil,
             fields: ["id", "name"]
         )
         #expect(second.items.count <= 2)
