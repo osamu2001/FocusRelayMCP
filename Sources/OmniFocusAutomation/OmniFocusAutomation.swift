@@ -86,7 +86,7 @@ public final class OmniAutomationService: OmniFocusService {
                 available: payload.available ?? false
             )
         }
-        return Page(items: items, nextCursor: payloadPage.nextCursor)
+        return Page(items: items, nextCursor: payloadPage.nextCursor, returnedCount: payloadPage.returnedCount, totalCount: payloadPage.totalCount)
     }
 
     public func getTask(id: String, fields: [String]?) async throws -> TaskItem {
@@ -142,7 +142,7 @@ public final class OmniAutomationService: OmniFocusService {
                 nextTask: nextTask
             )
         }
-        return Page(items: items, nextCursor: payloadPage.nextCursor)
+        return Page(items: items, nextCursor: payloadPage.nextCursor, returnedCount: payloadPage.returnedCount, totalCount: payloadPage.totalCount)
     }
 
     public func listTags(page: PageRequest, statusFilter: String?, includeTaskCounts: Bool) async throws -> Page<TagItem> {

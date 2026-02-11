@@ -57,7 +57,7 @@ final class BridgeClient: @unchecked Sendable {
                     available: payload.available ?? false
                 )
             }
-            return Page(items: items, nextCursor: payloadPage.nextCursor, totalCount: payloadPage.totalCount)
+            return Page(items: items, nextCursor: payloadPage.nextCursor, returnedCount: payloadPage.returnedCount, totalCount: payloadPage.totalCount)
         }
 
         let message = response.error?.message ?? "Unknown bridge error"
@@ -139,7 +139,7 @@ final class BridgeClient: @unchecked Sendable {
                     isStalled: payload.isStalled
                 )
             }
-            return Page(items: items, nextCursor: payloadPage.nextCursor, totalCount: payloadPage.totalCount)
+            return Page(items: items, nextCursor: payloadPage.nextCursor, returnedCount: payloadPage.returnedCount, totalCount: payloadPage.totalCount)
         }
 
         let message = response.error?.message ?? "Unknown bridge error"
@@ -175,7 +175,7 @@ final class BridgeClient: @unchecked Sendable {
                     totalTasks: payload.totalTasks
                 )
             }
-            return Page(items: items, nextCursor: payloadPage.nextCursor, totalCount: payloadPage.totalCount)
+            return Page(items: items, nextCursor: payloadPage.nextCursor, returnedCount: payloadPage.returnedCount, totalCount: payloadPage.totalCount)
         }
 
         let message = response.error?.message ?? "Unknown bridge error"

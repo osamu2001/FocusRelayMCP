@@ -263,89 +263,109 @@
             untaggedOnly: Array.isArray(filter.tags) && filter.tags.length === 0
           };
           
-          // Single-pass filter with all conditions
-          const filteredTasks = [];
-          const limit = request.page && request.page.limit ? request.page.limit : 50;
-          
-          for (let i = 0; i < tasks.length && filteredTasks.length < limit; i++) {
-            const t = tasks[i];
-            
+          // Helper function to check if a task matches all filters
+          function taskMatchesFilters(t) {
             // Status checks
             if (filterState.completed !== undefined) {
               const taskCompleted = Boolean(t.completed);
-              if (taskCompleted !== filterState.completed) continue;
+              if (taskCompleted !== filterState.completed) return false;
             }
             if (filterState.flagged !== undefined) {
               const taskFlagged = Boolean(t.flagged);
-              if (taskFlagged !== filterState.flagged) continue;
+              if (taskFlagged !== filterState.flagged) return false;
             }
             if (filterState.availableOnly) {
-              if (!isTaskAvailable(t)) continue;
+              if (!isTaskAvailable(t)) return false;
             }
             
             // Project check
             if (filterState.projectFilter) {
               const project = safe(() => t.containingProject);
-              if (!project) continue;
+              if (!project) return false;
               const pid = String(safe(() => project.id.primaryKey) || "");
               const pname = String(safe(() => project.name) || "");
-              if (pid !== filterState.projectFilter && pname !== filterState.projectFilter) continue;
+              if (pid !== filterState.projectFilter && pname !== filterState.projectFilter) return false;
             }
             
             // Date checks
             if (filterState.dueBefore) {
               const due = getTaskDateTimestamp(t, task => task.dueDate);
-              if (due === null || due > filterState.dueBefore.getTime()) continue;
+              if (due === null || due > filterState.dueBefore.getTime()) return false;
             }
             if (filterState.dueAfter) {
               const due = getTaskDateTimestamp(t, task => task.dueDate);
-              if (due === null || due < filterState.dueAfter.getTime()) continue;
+              if (due === null || due < filterState.dueAfter.getTime()) return false;
             }
             if (filterState.deferBefore) {
               const defer = getTaskDateTimestamp(t, task => task.deferDate);
-              if (defer === null || defer > filterState.deferBefore.getTime()) continue;
+              if (defer === null || defer > filterState.deferBefore.getTime()) return false;
             }
             if (filterState.deferAfter) {
               const defer = getTaskDateTimestamp(t, task => task.deferDate);
-              if (defer === null || defer < filterState.deferAfter.getTime()) continue;
+              if (defer === null || defer < filterState.deferAfter.getTime()) return false;
             }
             
             // Completion date checks
             if (filterState.completedBefore) {
               const completed = getTaskDateTimestamp(t, task => task.completionDate);
-              if (completed === null || completed > filterState.completedBefore.getTime()) continue;
+              if (completed === null || completed > filterState.completedBefore.getTime()) return false;
             }
             if (filterState.completedAfter) {
               const completed = getTaskDateTimestamp(t, task => task.completionDate);
-              if (completed === null || completed < filterState.completedAfter.getTime()) continue;
+              if (completed === null || completed < filterState.completedAfter.getTime()) return false;
             }
             
             // Duration checks
             if (filterState.maxEstimatedMinutes !== undefined) {
               const minutes = safe(() => t.estimatedMinutes);
-              if (minutes === null || minutes === undefined || minutes > filterState.maxEstimatedMinutes) continue;
+              if (minutes === null || minutes === undefined || minutes > filterState.maxEstimatedMinutes) return false;
             }
             if (filterState.minEstimatedMinutes !== undefined) {
               const minutes = safe(() => t.estimatedMinutes);
-              if (minutes === null || minutes === undefined || minutes < filterState.minEstimatedMinutes) continue;
+              if (minutes === null || minutes === undefined || minutes < filterState.minEstimatedMinutes) return false;
             }
             
             // Tag checks
             if (filterState.tags) {
               const tags = safe(() => t.tags) || [];
               if (filterState.untaggedOnly) {
-                if (tags.length > 0) continue;
+                if (tags.length > 0) return false;
               } else {
                 const hasMatchingTag = tags.some(tag => {
                   const tagId = String(safe(() => tag.id.primaryKey) || "");
                   const tagName = String(safe(() => tag.name) || "");
                   return filterState.tags.some(filterTag => tagId === filterTag || tagName === filterTag);
                 });
-                if (!hasMatchingTag) continue;
+                if (!hasMatchingTag) return false;
               }
             }
             
-            filteredTasks.push(t);
+            return true;
+          }
+          
+          // Check if total count is requested
+          const includeTotalCount = filter.includeTotalCount === true;
+          
+          // Calculate total count if requested (requires scanning all tasks)
+          let totalCount = null;
+          if (includeTotalCount) {
+            totalCount = 0;
+            for (const t of tasks) {
+              if (taskMatchesFilters(t)) {
+                totalCount++;
+              }
+            }
+          }
+          
+          // Single-pass filter with pagination (only collect up to limit)
+          const filteredTasks = [];
+          const limit = request.page && request.page.limit ? request.page.limit : 50;
+          
+          for (let i = 0; i < tasks.length && filteredTasks.length < limit; i++) {
+            const t = tasks[i];
+            if (taskMatchesFilters(t)) {
+              filteredTasks.push(t);
+            }
           }
           
           tasks = filteredTasks;
@@ -355,13 +375,18 @@
           const pageTasks = offset > 0 ? tasks.slice(offset) : tasks;
           const items = pageTasks.map(t => taskToPayload(t, fields));
           
-          // Calculate total available for pagination
-          // Note: tasks.length is limited to page size, so we need to indicate there may be more
-          // For accurate pagination, we'd need to scan all tasks (trade-off for performance)
+          // Calculate returned count (actual items in this response)
+          const returnedCount = items.length;
+          
+          // Calculate pagination cursor
           const hasMore = items.length === limit;
           const nextCursor = hasMore ? String(offset + items.length) : null;
           
-          response.data = { items: items, nextCursor: nextCursor };
+          // Build response with both counts
+          response.data = { items: items, nextCursor: nextCursor, returnedCount: returnedCount };
+          if (includeTotalCount) {
+            response.data.totalCount = totalCount;
+          }
         } else if (request.op === "list_projects") {
           const fields = request.fields || [];
           const hasField = (name) => fields.length === 0 || fields.indexOf(name) !== -1;
@@ -550,7 +575,8 @@
           });
           
           const nextCursor = (offset + limit < projects.length) ? String(offset + limit) : null;
-          response.data = { items: items, nextCursor: nextCursor, totalCount: projects.length };
+          const returnedCount = items.length;
+          response.data = { items: items, nextCursor: nextCursor, returnedCount: returnedCount, totalCount: projects.length };
         } else if (request.op === "list_tags") {
           // Check both filter and tagFilter (Swift sends tagFilter)
           const filter = request.tagFilter || request.filter || {};
@@ -620,7 +646,8 @@
           });
           
           const nextCursor = (offset + limit < tags.length) ? String(offset + limit) : null;
-          response.data = { items: items, nextCursor: nextCursor, totalCount: tags.length };
+          const returnedCount = items.length;
+          response.data = { items: items, nextCursor: nextCursor, returnedCount: returnedCount, totalCount: tags.length };
         } else if (request.op === "get_task") {
           const fields = request.fields || [];
           const taskId = request.id;

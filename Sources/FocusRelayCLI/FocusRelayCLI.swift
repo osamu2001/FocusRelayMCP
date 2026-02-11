@@ -60,7 +60,7 @@ struct ListTasks: AsyncParsableCommand {
         let result = try await service.listTasks(filter: taskFilter, page: pageRequest, fields: selectedFields)
         let fieldSet = Set(selectedFields)
         let items = result.items.map { makeTaskOutput(from: $0, fields: fieldSet) }
-        let output = PageOutput(items: items, nextCursor: result.nextCursor, totalCount: result.totalCount)
+        let output = PageOutput(items: items, nextCursor: result.nextCursor, returnedCount: result.returnedCount, totalCount: result.totalCount)
         print(try encodeJSON(output))
     }
 }
@@ -135,7 +135,7 @@ struct ListProjects: AsyncParsableCommand {
         )
         let fieldSet = Set(selectedFields)
         let items = result.items.map { makeProjectOutput(from: $0, fields: fieldSet, includeTaskCounts: includeTaskCounts) }
-        let output = PageOutput(items: items, nextCursor: result.nextCursor, totalCount: result.totalCount)
+        let output = PageOutput(items: items, nextCursor: result.nextCursor, returnedCount: result.returnedCount, totalCount: result.totalCount)
         print(try encodeJSON(output))
     }
 }
@@ -162,7 +162,7 @@ struct ListTags: AsyncParsableCommand {
         let result = try await service.listTags(page: pageRequest, statusFilter: statusFilter, includeTaskCounts: includeTaskCounts)
         let fieldSet: Set<String> = ["id", "name", "status", "availableTasks", "remainingTasks", "totalTasks"]
         let items = result.items.map { makeTagOutput(from: $0, fields: fieldSet, includeTaskCounts: includeTaskCounts) }
-        let output = PageOutput(items: items, nextCursor: result.nextCursor, totalCount: result.totalCount)
+        let output = PageOutput(items: items, nextCursor: result.nextCursor, returnedCount: result.returnedCount, totalCount: result.totalCount)
         print(try encodeJSON(output))
     }
 }

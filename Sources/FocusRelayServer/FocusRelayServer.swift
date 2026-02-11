@@ -267,7 +267,7 @@ public enum FocusRelayServer {
                     let result = try await service.listTasks(filter: filter, page: page, fields: fields)
                     let fieldSet = Set(fields)
                     let items = result.items.map { makeTaskOutput(from: $0, fields: fieldSet) }
-                    let output = PageOutput(items: items, nextCursor: result.nextCursor, totalCount: result.totalCount)
+                    let output = PageOutput(items: items, nextCursor: result.nextCursor, returnedCount: result.returnedCount, totalCount: result.totalCount)
                     return .init(content: [.text(try encodeJSON(output))])
                 case "get_task":
                     let id = try decodeArgument(String.self, from: params.arguments, key: "id") ?? ""
@@ -301,7 +301,7 @@ public enum FocusRelayServer {
                     )
                     let fieldSet = Set(fields)
                     let items = result.items.map { makeProjectOutput(from: $0, fields: fieldSet, includeTaskCounts: includeTaskCounts) }
-                    let output = PageOutput(items: items, nextCursor: result.nextCursor, totalCount: result.totalCount)
+                    let output = PageOutput(items: items, nextCursor: result.nextCursor, returnedCount: result.returnedCount, totalCount: result.totalCount)
                     return .init(content: [.text(try encodeJSON(output))])
                 case "list_tags":
                     let hasPage = params.arguments?["page"] != nil
@@ -311,7 +311,7 @@ public enum FocusRelayServer {
                     let result = try await service.listTags(page: page, statusFilter: statusFilter, includeTaskCounts: includeTaskCounts)
                     let fieldSet = Set(["id", "name", "status", "availableTasks", "remainingTasks", "totalTasks"])
                     let items = result.items.map { makeTagOutput(from: $0, fields: fieldSet, includeTaskCounts: includeTaskCounts) }
-                    let output = PageOutput(items: items, nextCursor: result.nextCursor, totalCount: result.totalCount)
+                    let output = PageOutput(items: items, nextCursor: result.nextCursor, returnedCount: result.returnedCount, totalCount: result.totalCount)
                     return .init(content: [.text(try encodeJSON(output))])
                 case "get_task_counts":
                     let filter = try decodeArgument(TaskFilter.self, from: params.arguments, key: "filter") ?? TaskFilter()

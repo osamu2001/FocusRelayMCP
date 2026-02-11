@@ -179,11 +179,13 @@ public struct ProjectCounts: Codable, Sendable {
 public struct Page<T: Codable & Sendable>: Codable, Sendable {
     public let items: [T]
     public let nextCursor: String?
+    public let returnedCount: Int
     public let totalCount: Int?
 
-    public init(items: [T], nextCursor: String? = nil, totalCount: Int? = nil) {
+    public init(items: [T], nextCursor: String? = nil, returnedCount: Int, totalCount: Int? = nil) {
         self.items = items
         self.nextCursor = nextCursor
+        self.returnedCount = returnedCount
         self.totalCount = totalCount
     }
 }
@@ -242,6 +244,7 @@ public struct TaskFilter: Codable, Sendable {
     public var maxEstimatedMinutes: Int?
     public var minEstimatedMinutes: Int?
     public var staleThreshold: String?
+    public var includeTotalCount: Bool?
 
     public init(
         completed: Bool? = nil,
@@ -261,7 +264,8 @@ public struct TaskFilter: Codable, Sendable {
         projectView: String? = nil,
         maxEstimatedMinutes: Int? = nil,
         minEstimatedMinutes: Int? = nil,
-        staleThreshold: String? = nil
+        staleThreshold: String? = nil,
+        includeTotalCount: Bool? = nil
     ) {
         self.completed = completed
         self.flagged = flagged
@@ -277,6 +281,7 @@ public struct TaskFilter: Codable, Sendable {
         self.maxEstimatedMinutes = maxEstimatedMinutes
         self.minEstimatedMinutes = minEstimatedMinutes
         self.staleThreshold = staleThreshold
+        self.includeTotalCount = includeTotalCount
 
         // staleThreshold is mutually exclusive with deferBefore - calculate deferBefore if staleThreshold is set
         if let threshold = staleThreshold {

@@ -105,6 +105,9 @@ struct TaskFilterOptions: ParsableArguments {
     @Option(name: .customLong("stale-threshold"), help: "Relative date filter (e.g. 7days, 30days, 365days).")
     var staleThreshold: String? = nil
 
+    @Flag(name: .customLong("include-total-count"), help: "Include total count of all matching tasks.")
+    var includeTotalCount: Bool = false
+
     func makeTaskFilter() throws -> TaskFilter {
         let tagList = FieldList.parse(tags)
         return TaskFilter(
@@ -125,7 +128,8 @@ struct TaskFilterOptions: ParsableArguments {
             projectView: projectView,
             maxEstimatedMinutes: maxEstimatedMinutes,
             minEstimatedMinutes: minEstimatedMinutes,
-            staleThreshold: staleThreshold
+            staleThreshold: staleThreshold,
+            includeTotalCount: includeTotalCount
         )
     }
 }

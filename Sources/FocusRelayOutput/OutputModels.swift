@@ -53,11 +53,13 @@ public struct TaskOutput: Encodable {
 public struct PageOutput<T: Encodable>: Encodable {
     public let items: [T]
     public let nextCursor: String?
+    public let returnedCount: Int
     public let totalCount: Int?
 
-    public init(items: [T], nextCursor: String? = nil, totalCount: Int? = nil) {
+    public init(items: [T], nextCursor: String? = nil, returnedCount: Int, totalCount: Int? = nil) {
         self.items = items
         self.nextCursor = nextCursor
+        self.returnedCount = returnedCount
         self.totalCount = totalCount
     }
 }
