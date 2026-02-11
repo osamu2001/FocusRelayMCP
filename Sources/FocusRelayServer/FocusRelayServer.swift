@@ -26,7 +26,7 @@ public enum FocusRelayServer {
             let tools = [
                 Tool(
                     name: "list_tasks",
-                    description: "Query OmniFocus tasks with powerful filtering including completion dates, due dates, and availability.\n\nFILTERING BY COMPLETION DATE (for 'what did I complete today?' questions):\n- Method 1 - Use completedAfter/completedBefore with ISO8601 dates: {\"completedAfter\": \"2026-01-31T00:00:00Z\", \"completedBefore\": \"2026-02-01T00:00:00Z\"}\n- Method 2 - Use staleThreshold with completed=true: {\"completed\": true, \"staleThreshold\": \"1days\"} for today, \"7days\" for this week\n- IMPORTANT: Always include 'completionDate' in the fields parameter to see when tasks were completed\n\nFILTERING BY AVAILABILITY (for 'what should I do?' questions):\n- Use availableOnly=true to see only actionable tasks\n- Use deferAfter/deferBefore for time-of-day filtering (Morning=06:00-12:00, etc.)\n\nTime formats: ISO8601 UTC (YYYY-MM-DDTHH:MM:SSZ). Default fields: only 'id' and 'name'.",
+                    description: "Query OmniFocus tasks with powerful filtering including completion dates, due dates, and availability.\n\nFILTERING BY COMPLETION DATE (for 'what did I complete today?' questions):\n- Use completedAfter/completedBefore with ISO8601 dates: {\"completedAfter\": \"2026-01-31T00:00:00Z\", \"completedBefore\": \"2026-02-01T00:00:00Z\"}\n- IMPORTANT: Always include 'completionDate' in the fields parameter to see when tasks were completed\n- Results are automatically sorted by completionDate descending (most recent first) to match OmniFocus Completed perspective\n\nFILTERING BY AVAILABILITY (for 'what should I do?' questions):\n- Use availableOnly=true to see only actionable tasks\n- Use deferAfter/deferBefore for time-of-day filtering (Morning=06:00-12:00, etc.)\n\nTime formats: ISO8601 UTC (YYYY-MM-DDTHH:MM:SSZ). Default fields: only 'id' and 'name'.",
                     inputSchema: toolSchema(
                         properties: [
                             "filter": .object([
@@ -35,7 +35,7 @@ public enum FocusRelayServer {
                                 "properties": .object([
                                     "completed": propertySchema(
                                         type: "boolean",
-                                        description: "Filter by completion status. Use with staleThreshold to filter completed tasks by date (e.g., completed=true + staleThreshold='1days' = today's completions)"
+                                        description: "Filter by completion status. Use with completedAfter/completedBefore to filter completed tasks by date (e.g., completed=true + completedAfter='2026-02-10T00:00:00Z' = today's completions)"
                                     ),
                                     "completedAfter": propertySchema(
                                         type: "string",
@@ -77,12 +77,7 @@ public enum FocusRelayServer {
                                         description: "ISO8601 datetime. Tasks deferred until after this time (become available). For morning tasks starting at 6am, use today's date at 06:00:00Z",
                                         examples: [.string("2026-01-30T06:00:00Z"), .string("2026-01-30T12:00:00Z")]
                                     ),
-                                    "staleThreshold": .object([
-                                        "type": .string("string"),
-                                        "description": .string("Convenience filter for relative date filtering. For completed tasks, finds tasks completed within the threshold. For incomplete tasks, finds tasks deferred before (threshold days ago). Examples: '1days' for today, '7days' for this week, '365days' for stale tasks"),
-                                        "enum": .array([.string("1days"), .string("7days"), .string("30days"), .string("90days"), .string("180days"), .string("270days"), .string("365days")]),
-                                        "examples": .array([.string("1days"), .string("7days"), .string("365days")])
-                                    ]),
+
                                     "search": propertySchema(type: "string", description: "Search tasks by name or note content"),
                                     "inboxOnly": propertySchema(type: "boolean", description: "Only show inbox tasks"),
                                     "projectView": propertySchema(type: "string", description: "Project view filter: 'active', 'onHold', etc.")
@@ -126,7 +121,7 @@ public enum FocusRelayServer {
                 ),
                 Tool(
                     name: "list_projects",
-                    description: "List OmniFocus projects with pagination and filtering. Projects have a status (active, onHold, dropped, done) and can optionally include task counts. Use statusFilter to show only projects with a specific status, and includeTaskCounts to get the number of tasks associated with each project.\n\nREVIEW PERSPECTIVE:\n- Use reviewPerspective=true to return projects pending review (excludes dropped/done and applies nextReviewDate <= now when reviewDueBefore is omitted).\n- Optionally set reviewDueBefore/reviewDueAfter (ISO8601 UTC) to bound nextReviewDate.",
+                    description: "List OmniFocus projects with pagination and filtering. Projects have a status (active, onHold, dropped, done) and can optionally include task counts. Use statusFilter to show only projects with a specific status, and includeTaskCounts to get the number of tasks associated with each project.\n\nCOMPLETED PROJECTS (matches OmniFocus Completed perspective):\n- Use completedAfter/completedBefore with ISO8601 dates to find completed projects in time windows\n- Excludes dropped projects (only status=done projects with completion dates)\n- Results sorted by completionDate descending (most recent first)\n- IMPORTANT: Include 'completionDate' in fields to see when projects were completed\n\nREVIEW PERSPECTIVE:\n- Use reviewPerspective=true to return projects pending review (excludes dropped/done and applies nextReviewDate <= now when reviewDueBefore is omitted).\n- Optionally set reviewDueBefore/reviewDueAfter (ISO8601 UTC) to bound nextReviewDate.",
                     inputSchema: toolSchema(
                         properties: [
                             "page": .object([
@@ -141,6 +136,21 @@ public enum FocusRelayServer {
                                 "description": .string("Filter projects by status: 'active' (default), 'onHold', 'dropped', 'done', or 'all'"),
                                 "enum": .array([.string("active"), .string("onHold"), .string("dropped"), .string("done"), .string("all")]),
                                 "default": .string("active")
+                            ]),
+                            "completed": .object([
+                                "type": .string("boolean"),
+                                "description": .string("Filter by completion status. When true with completedAfter/completedBefore, finds completed projects in time window (excludes dropped)"),
+                                "default": .bool(false)
+                            ]),
+                            "completedAfter": .object([
+                                "type": .string("string"),
+                                "description": .string("ISO8601 datetime. Projects completed after this time (inclusive). Use with completed=true to find completed projects in time windows."),
+                                "examples": .array([.string("2026-01-01T00:00:00Z")])
+                            ]),
+                            "completedBefore": .object([
+                                "type": .string("string"),
+                                "description": .string("ISO8601 datetime. Projects completed before this time (exclusive). Use with completed=true to find completed projects in time windows."),
+                                "examples": .array([.string("2026-02-01T00:00:00Z")])
                             ]),
                             "includeTaskCounts": .object([
                                 "type": .string("boolean"),
@@ -210,10 +220,31 @@ public enum FocusRelayServer {
                 ),
                 Tool(
                     name: "get_project_counts",
-                    description: "Get project/action counts for a view filter",
+                    description: "Get project/action counts for a view filter.\n\nCOMPLETED PROJECTS COUNT:\n- Use completedAfter/completedBefore to count completed projects in time windows\n- Returns: projects (count of completed projects), actions (count of completed tasks in those projects)\n- Excludes dropped projects (only status=done)\n- Use this to answer 'How many projects did I complete this month?' without listing all items",
                     inputSchema: toolSchema(
                         properties: [
-                            "filter": .object(["type": .string("object")])
+                            "filter": .object([
+                                "type": .string("object"),
+                                "properties": .object([
+                                    "completed": .object([
+                                        "type": .string("boolean"),
+                                        "description": .string("Filter by completion status")
+                                    ]),
+                                    "completedAfter": .object([
+                                        "type": .string("string"),
+                                        "description": .string("ISO8601 datetime. Count projects completed after this time")
+                                    ]),
+                                    "completedBefore": .object([
+                                        "type": .string("string"),
+                                        "description": .string("ISO8601 datetime. Count projects completed before this time")
+                                    ]),
+                                    "projectView": .object([
+                                        "type": .string("string"),
+                                        "description": .string("Project view filter: 'active', 'onHold', 'dropped', 'done', 'all'"),
+                                        "enum": .array([.string("active"), .string("onHold"), .string("dropped"), .string("done"), .string("all")])
+                                    ])
+                                ])
+                            ])
                         ]
                     ),
                     annotations: .init(readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false)

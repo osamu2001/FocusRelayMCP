@@ -195,8 +195,16 @@ Dates should be ISO8601 (e.g. `2026-02-04T12:00:00Z`).
 - "What did I accomplish this week?" (tasks completed in last 7 days)
 - "What tasks did I complete today?"
 - "What projects did I complete in the last 30 days?"
+- "How many projects did I complete this month?" (count without listing)
 - "How many tasks are in my inbox?"
 - "Show me completed tasks"
+
+### Completed Perspective Parity
+All completion queries match the OmniFocus Completed perspective:
+- **Includes**: Completed actions, action groups, and projects
+- **Excludes**: Dropped items (only status=done)
+- **Sorting**: Results sorted by completionDate descending (most recent first)
+- **Time windows**: Use completedAfter/completedBefore for precise date filtering
 
 ## Available Tools
 
@@ -251,7 +259,13 @@ Get aggregate counts for any filter combination. Supports full task filtering in
 Example: Get count of tasks completed today without listing them
 
 ### get_project_counts
-Get counts of projects and actions.
+Get counts of projects and actions. Supports completion date filtering:
+- **Completed projects count**: Use `completedAfter`/`completedBefore` to count completed projects in time windows
+- **Returns**: `projects` (count of completed projects), `actions` (count of completed tasks in those projects)
+- **Excludes dropped**: Only counts status=done projects
+- **Use case**: "How many projects did I complete this month?" without listing all items
+
+Example: Count projects completed in the last 30 days
 
 ## Timezone Handling
 

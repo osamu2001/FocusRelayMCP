@@ -787,71 +787,118 @@
           response.data = counts;
         } else if (request.op === "get_project_counts") {
           const filter = request.filter || {};
-          const view = (typeof filter.projectView === "string") ? filter.projectView.toLowerCase() : "remaining";
-          const isEverything = view === "everything";
-          const isAvailableView = view === "available";
+          
+          // Check if this is a completion date query
+          const completedAfter = filter.completedAfter ? parseFilterDate(filter.completedAfter, response.warnings) : null;
+          const completedBefore = filter.completedBefore ? parseFilterDate(filter.completedBefore, response.warnings) : null;
+          const completedOnly = filter.completed === true;
+          
+          if (completedOnly || completedAfter || completedBefore) {
+            // Count completed projects by completion date
+            let projects = flattenedProjects.filter(p => {
+              const status = safe(() => p.status);
+              // Only include completed projects (status = Done), exclude dropped
+              if (status !== Project.Status.Done) return false;
+              
+              const completionDate = getProjectDateTimestamp(p, proj => proj.completionDate);
+              if (completionDate === null) return false;
+              
+              if (completedAfter && completionDate < completedAfter.getTime()) return false;
+              if (completedBefore && completionDate > completedBefore.getTime()) return false;
+              
+              return true;
+            });
+            
+            const projectCount = projects.length;
+            
+            // Count completed tasks in those projects
+            const projectIds = new Set(projects.map(p => String(safe(() => p.id.primaryKey) || "")));
+            let completedTaskCount = 0;
+            
+            flattenedTasks.forEach(t => {
+              const project = safe(() => t.containingProject);
+              if (!project) return;
+              const pid = String(safe(() => project.id.primaryKey) || "");
+              if (projectIds.has(pid) && Boolean(t.completed)) {
+                const taskCompletionDate = getTaskDateTimestamp(t, task => task.completionDate);
+                if (taskCompletionDate !== null) {
+                  // Only count tasks completed in the same window
+                  if ((!completedAfter || taskCompletionDate >= completedAfter.getTime()) &&
+                      (!completedBefore || taskCompletionDate < completedBefore.getTime())) {
+                    completedTaskCount++;
+                  }
+                }
+              }
+            });
+            
+            response.data = { projects: projectCount, actions: completedTaskCount };
+          } else {
+            // Original behavior for non-completion queries
+            const view = (typeof filter.projectView === "string") ? filter.projectView.toLowerCase() : "remaining";
+            const isEverything = view === "everything";
+            const isAvailableView = view === "available";
 
-          function status(task) {
-            return safe(() => task.taskStatus);
-          }
+            function status(task) {
+              return safe(() => task.taskStatus);
+            }
 
-          function isRemainingStatus(task) {
-            const st = status(task);
-            return st !== Task.Status.Completed && st !== Task.Status.Dropped;
-          }
+            function isRemainingStatus(task) {
+              const st = status(task);
+              return st !== Task.Status.Completed && st !== Task.Status.Dropped;
+            }
 
-          function isAvailableStatus(task) {
-            const st = status(task);
-            return st === Task.Status.Available ||
-              st === Task.Status.DueSoon ||
-              st === Task.Status.Next ||
-              st === Task.Status.Overdue;
-          }
+            function isAvailableStatus(task) {
+              const st = status(task);
+              return st === Task.Status.Available ||
+                st === Task.Status.DueSoon ||
+                st === Task.Status.Next ||
+                st === Task.Status.Overdue;
+            }
 
-          function projectAllowed(p) {
-            if (!p) { return false; }
+            function projectAllowed(p) {
+              if (!p) { return false; }
+              if (!isEverything) {
+                if (Boolean(safe(() => p.completed))) { return false; }
+                if (safe(() => p.dropDate)) { return false; }
+              }
+              if (view === "remaining" || isAvailableView) {
+                if (Boolean(safe(() => p.onHold))) { return false; }
+              }
+              return true;
+            }
+
+            function parentAllowed(task) {
+              const parent = safe(() => task.parent);
+              if (!parent) { return true; }
+              if (Boolean(safe(() => parent.completed))) { return false; }
+              if (safe(() => parent.dropDate)) { return false; }
+              return true;
+            }
+
+            let tasks = flattenedTasks;
+            tasks = tasks.filter(t => {
+              const project = safe(() => t.containingProject);
+              return projectAllowed(project) && parentAllowed(t);
+            });
+
             if (!isEverything) {
-              if (Boolean(safe(() => p.completed))) { return false; }
-              if (safe(() => p.dropDate)) { return false; }
+              tasks = tasks.filter(t => isRemainingStatus(t));
             }
-            if (view === "remaining" || isAvailableView) {
-              if (Boolean(safe(() => p.onHold))) { return false; }
+
+            if (isAvailableView) {
+              tasks = tasks.filter(t => isAvailableStatus(t));
             }
-            return true;
+
+            const projectIds = new Set();
+            tasks.forEach(t => {
+              const project = safe(() => t.containingProject);
+              if (!project) { return; }
+              const pid = String(safe(() => project.id.primaryKey) || "");
+              if (pid) { projectIds.add(pid); }
+            });
+
+            response.data = { projects: projectIds.size, actions: tasks.length };
           }
-
-          function parentAllowed(task) {
-            const parent = safe(() => task.parent);
-            if (!parent) { return true; }
-            if (Boolean(safe(() => parent.completed))) { return false; }
-            if (safe(() => parent.dropDate)) { return false; }
-            return true;
-          }
-
-          let tasks = flattenedTasks;
-          tasks = tasks.filter(t => {
-            const project = safe(() => t.containingProject);
-            return projectAllowed(project) && parentAllowed(t);
-          });
-
-          if (!isEverything) {
-            tasks = tasks.filter(t => isRemainingStatus(t));
-          }
-
-
-          if (isAvailableView) {
-            tasks = tasks.filter(t => isAvailableStatus(t));
-          }
-
-          const projectIds = new Set();
-          tasks.forEach(t => {
-            const project = safe(() => t.containingProject);
-            if (!project) { return; }
-            const pid = String(safe(() => project.id.primaryKey) || "");
-            if (pid) { projectIds.add(pid); }
-          });
-
-          response.data = { projects: projectIds.size, actions: tasks.length };
         } else {
           response.ok = false;
           response.error = { code: "UNKNOWN_OP", message: "Unsupported op: " + request.op };
