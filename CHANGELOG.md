@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Automatic counting in list_tasks responses**: New `returnedCount` field always shows how many items are in the current response
+- **Optional total count with includeTotalCount**: Set `includeTotalCount: true` in the filter to get `totalCount` (total matching items without pagination)
+- **CLI support**: Added `--include-total-count` flag to `focusrelay list-tasks` command
+- **Prevents LLM counting errors**: Explicit counts eliminate manual counting mistakes
 - Initial release with core MCP server functionality
 - OmniFocus plugin for automation
 - Timezone-aware queries

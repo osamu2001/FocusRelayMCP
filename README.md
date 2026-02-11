@@ -158,6 +158,9 @@ focusrelay get-task <task-id> --fields id,name,note
 
 # Check bridge health
 focusrelay bridge-health-check
+
+# List tasks with total count (shows returnedCount and totalCount)
+focusrelay list-tasks --fields name --limit 10 --include-total-count
 ```
 
 Dates should be ISO8601 (e.g. `2026-02-04T12:00:00Z`).
@@ -201,6 +204,22 @@ Query tasks with various filters:
 - `flagged`: Show only flagged tasks
 - `completed`: Show completed or remaining tasks
 - `staleThreshold`: Convenience filter (7days, 30days, 90days, 180days, 270days, 365days)
+- `includeTotalCount`: Set to `true` to include total count of all matching tasks (see Response Counts below)
+
+**Response Counts:**
+All list operations now include automatic counting to prevent errors:
+- `returnedCount`: Always included - shows actual items in this response
+- `totalCount`: Only included when `includeTotalCount: true` - shows total matching items
+
+Example response:
+```json
+{
+  "items": [...],
+  "returnedCount": 10,
+  "totalCount": 1784,
+  "nextCursor": "10"
+}
+```
 
 ### list_projects
 Query projects with status and task counts:
@@ -234,6 +253,7 @@ The timezone is detected from your macOS system settings and passed to OmniFocus
 - **Single-Pass Filtering**: All filters applied in one iteration (optimized for speed)
 - **Early Exit**: Stops processing once page limit is reached
 - **Typical Response Time**: ~1 second (limited by OmniFocus IPC)
+- **Reduced API Calls**: Use `includeTotalCount: true` to get counts and list in one call instead of two
 
 ## Troubleshooting
 
