@@ -101,6 +101,9 @@ public final class OmniAutomationService: OmniFocusService {
         reviewDueBefore: Date?,
         reviewDueAfter: Date?,
         reviewPerspective: Bool,
+        completed: Bool?,
+        completedBefore: Date?,
+        completedAfter: Date?,
         fields: [String]?
     ) async throws -> Page<ProjectItem> {
         let request = ListProjectsRequest(
@@ -110,6 +113,9 @@ public final class OmniAutomationService: OmniFocusService {
             reviewDueBefore: reviewDueBefore,
             reviewDueAfter: reviewDueAfter,
             reviewPerspective: reviewPerspective,
+            completed: completed,
+            completedBefore: completedBefore,
+            completedAfter: completedAfter,
             fields: fields
         )
         let requestData = try JSONEncoder().encode(request)
@@ -139,7 +145,8 @@ public final class OmniAutomationService: OmniFocusService {
                 droppedTasks: payload.droppedTasks,
                 totalTasks: payload.totalTasks,
                 hasChildren: payload.hasChildren,
-                nextTask: nextTask
+                nextTask: nextTask,
+                completionDate: payload.completionDate
             )
         }
         return Page(items: items, nextCursor: payloadPage.nextCursor, returnedCount: payloadPage.returnedCount, totalCount: payloadPage.totalCount)
@@ -189,6 +196,9 @@ private struct ListProjectsRequest: Codable {
     let reviewDueBefore: Date?
     let reviewDueAfter: Date?
     let reviewPerspective: Bool
+    let completed: Bool?
+    let completedBefore: Date?
+    let completedAfter: Date?
     let fields: [String]?
 }
 

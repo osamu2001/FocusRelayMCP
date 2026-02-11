@@ -45,6 +45,7 @@ struct ProjectItemPayload: Codable {
     let nextTask: ProjectTaskSummaryPayload?
     let containsSingletonActions: Bool?
     let isStalled: Bool?
+    let completionDate: Date?
 }
 
 struct TagItemPayload: Codable {

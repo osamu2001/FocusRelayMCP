@@ -102,9 +102,6 @@ struct TaskFilterOptions: ParsableArguments {
     @Option(name: .customLong("min-estimated-minutes"), help: "Minimum estimated minutes.")
     var minEstimatedMinutes: Int? = nil
 
-    @Option(name: .customLong("stale-threshold"), help: "Relative date filter (e.g. 7days, 30days, 365days).")
-    var staleThreshold: String? = nil
-
     @Flag(name: .customLong("include-total-count"), help: "Include total count of all matching tasks.")
     var includeTotalCount: Bool = false
 
@@ -128,7 +125,6 @@ struct TaskFilterOptions: ParsableArguments {
             projectView: projectView,
             maxEstimatedMinutes: maxEstimatedMinutes,
             minEstimatedMinutes: minEstimatedMinutes,
-            staleThreshold: staleThreshold,
             includeTotalCount: includeTotalCount
         )
     }

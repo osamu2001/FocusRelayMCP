@@ -113,6 +113,15 @@ struct ListProjects: AsyncParsableCommand {
     @Option(name: .customLong("review-due-after"), help: "ISO8601 datetime. Next review due after this time.")
     var reviewDueAfter: String?
 
+    @Option(name: .customLong("completed"), help: "Filter by completion status (true/false).")
+    var completed: Bool?
+
+    @Option(name: .customLong("completed-before"), help: "ISO8601 datetime. Projects completed before this time.")
+    var completedBefore: String?
+
+    @Option(name: .customLong("completed-after"), help: "ISO8601 datetime. Projects completed after this time.")
+    var completedAfter: String?
+
     @Option(help: "Comma-separated field names to return.")
     var fields: String?
 
@@ -123,6 +132,8 @@ struct ListProjects: AsyncParsableCommand {
         let selectedFields = fieldList.isEmpty ? ["id", "name"] : fieldList
         let reviewBeforeDate = try ISO8601DateParser.parseOptional(reviewDueBefore, argumentName: "--review-due-before")
         let reviewAfterDate = try ISO8601DateParser.parseOptional(reviewDueAfter, argumentName: "--review-due-after")
+        let completedBeforeDate = try ISO8601DateParser.parseOptional(completedBefore, argumentName: "--completed-before")
+        let completedAfterDate = try ISO8601DateParser.parseOptional(completedAfter, argumentName: "--completed-after")
 
         let result = try await service.listProjects(
             page: pageRequest,
@@ -131,6 +142,9 @@ struct ListProjects: AsyncParsableCommand {
             reviewDueBefore: reviewBeforeDate,
             reviewDueAfter: reviewAfterDate,
             reviewPerspective: reviewPerspective,
+            completed: completed,
+            completedBefore: completedBeforeDate,
+            completedAfter: completedAfterDate,
             fields: selectedFields
         )
         let fieldSet = Set(selectedFields)

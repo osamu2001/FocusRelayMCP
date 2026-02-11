@@ -148,10 +148,13 @@ Run `focusrelay --help` for the full command list.
 
 ```bash
 # List tasks with selected fields
-focusrelay list-tasks --fields id,name,completionDate --completed true --stale-threshold 7days
+focusrelay list-tasks --fields id,name,completionDate --completed true --completed-after 2026-02-10T00:00:00Z
 
 # List projects with task counts
 focusrelay list-projects --status active --include-task-counts
+
+# List completed projects in last 30 days (sorted by completion date)
+focusrelay list-projects --completed-after 2026-01-12T00:00:00Z --fields name,completionDate
 
 # Fetch a single task by ID
 focusrelay get-task <task-id> --fields id,name,note
@@ -189,7 +192,9 @@ Dates should be ISO8601 (e.g. `2026-02-04T12:00:00Z`).
 - "Find my flagged items"
 
 ### Status Queries
-- "What did I accomplish this week?"
+- "What did I accomplish this week?" (tasks completed in last 7 days)
+- "What tasks did I complete today?"
+- "What projects did I complete in the last 30 days?"
 - "How many tasks are in my inbox?"
 - "Show me completed tasks"
 
@@ -199,12 +204,13 @@ Dates should be ISO8601 (e.g. `2026-02-04T12:00:00Z`).
 Query tasks with various filters:
 - `dueBefore`, `dueAfter`: Filter by due dates
 - `deferBefore`, `deferAfter`: Filter by defer dates
+- `completedBefore`, `completedAfter`: Filter by completion dates (implies `completed: true`)
 - `tags`: Filter by specific tags
 - `project`: Filter by project
 - `flagged`: Show only flagged tasks
 - `completed`: Show completed or remaining tasks
-- `staleThreshold`: Convenience filter (7days, 30days, 90days, 180days, 270days, 365days)
 - `includeTotalCount`: Set to `true` to include total count of all matching tasks (see Response Counts below)
+- **Sorting**: When filtering by completion, results are automatically sorted by `completionDate` descending (most recent first) to match OmniFocus Completed perspective
 
 **Response Counts:**
 All list operations now include automatic counting to prevent errors:
@@ -224,8 +230,12 @@ Example response:
 ### list_projects
 Query projects with status and task counts:
 - `statusFilter`: active, onHold, dropped, done, all
+- `completed`: Filter by completion status (true/false)
+- `completedBefore`, `completedAfter`: Filter by completion date windows (implies completed projects, excludes dropped)
 - `includeTaskCounts`: Get available/remaining/completed task counts
+- `completionDate`: Field available when requested
 - Returns: hasChildren, isStalled, nextTask for project health
+- **Sorting**: When filtering by completion, results are automatically sorted by `completionDate` descending (most recent first) to match OmniFocus Completed perspective
 
 ### list_tags
 Query tags with task counts:
@@ -233,7 +243,12 @@ Query tags with task counts:
 - `includeTaskCounts`: Get task counts per tag
 
 ### get_task_counts
-Get aggregate counts for any filter combination.
+Get aggregate counts for any filter combination. Supports full task filtering including:
+- All task filters: completed, completedAfter/Before, tags, project, availableOnly, etc.
+- **Time-window counts**: Get counts of completed tasks in specific date ranges (e.g., "completed today", "completed last 30 days")
+- **Sorting**: When filtering by completion, applies same sorting as list_tasks
+
+Example: Get count of tasks completed today without listing them
 
 ### get_project_counts
 Get counts of projects and actions.

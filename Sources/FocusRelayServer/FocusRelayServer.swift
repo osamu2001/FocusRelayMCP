@@ -288,6 +288,9 @@ public enum FocusRelayServer {
                     let reviewDueBefore = try decodeArgument(Date.self, from: params.arguments, key: "reviewDueBefore")
                     let reviewDueAfter = try decodeArgument(Date.self, from: params.arguments, key: "reviewDueAfter")
                     let reviewPerspective = try decodeArgument(Bool.self, from: params.arguments, key: "reviewPerspective") ?? false
+                    let completed = try decodeArgument(Bool.self, from: params.arguments, key: "completed")
+                    let completedBefore = try decodeArgument(Date.self, from: params.arguments, key: "completedBefore")
+                    let completedAfter = try decodeArgument(Date.self, from: params.arguments, key: "completedAfter")
                     let requestedFields = decodeStringArray(params.arguments?["fields"]) ?? []
                     let fields = requestedFields.isEmpty ? ["id", "name"] : requestedFields
                     let result = try await service.listProjects(
@@ -297,6 +300,9 @@ public enum FocusRelayServer {
                         reviewDueBefore: reviewDueBefore,
                         reviewDueAfter: reviewDueAfter,
                         reviewPerspective: reviewPerspective,
+                        completed: completed,
+                        completedBefore: completedBefore,
+                        completedAfter: completedAfter,
                         fields: fields
                     )
                     let fieldSet = Set(fields)

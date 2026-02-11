@@ -25,9 +25,12 @@ public final class OmniFocusBridgeService: OmniFocusService {
         reviewDueBefore: Date?,
         reviewDueAfter: Date?,
         reviewPerspective: Bool,
+        completed: Bool?,
+        completedBefore: Date?,
+        completedAfter: Date?,
         fields: [String]?
     ) async throws -> Page<ProjectItem> {
-        let shouldBypassCache = reviewPerspective || reviewDueBefore != nil || reviewDueAfter != nil
+        let shouldBypassCache = reviewPerspective || reviewDueBefore != nil || reviewDueAfter != nil || completed != nil || completedBefore != nil || completedAfter != nil
         if !shouldBypassCache {
             let fieldsKey = (fields ?? []).joined(separator: ",")
             let key = CacheKey(limit: page.limit, cursor: page.cursor, fieldsKey: fieldsKey)
@@ -41,6 +44,9 @@ public final class OmniFocusBridgeService: OmniFocusService {
                 reviewDueBefore: reviewDueBefore,
                 reviewDueAfter: reviewDueAfter,
                 reviewPerspective: reviewPerspective,
+                completed: completed,
+                completedBefore: completedBefore,
+                completedAfter: completedAfter,
                 fields: fields
             )
             await cache.setProjects(pageResult, key: key, ttl: cacheTTL)
@@ -54,6 +60,9 @@ public final class OmniFocusBridgeService: OmniFocusService {
             reviewDueBefore: reviewDueBefore,
             reviewDueAfter: reviewDueAfter,
             reviewPerspective: reviewPerspective,
+            completed: completed,
+            completedBefore: completedBefore,
+            completedAfter: completedAfter,
             fields: fields
         )
     }

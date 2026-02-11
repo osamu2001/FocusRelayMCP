@@ -82,6 +82,7 @@ public struct ProjectOutput: Encodable {
     public let nextTask: ProjectTaskSummary?
     public let containsSingletonActions: Bool?
     public let isStalled: Bool?
+    public let completionDate: Date?
 
     public init(
         id: String?,
@@ -100,7 +101,8 @@ public struct ProjectOutput: Encodable {
         hasChildren: Bool?,
         nextTask: ProjectTaskSummary?,
         containsSingletonActions: Bool?,
-        isStalled: Bool?
+        isStalled: Bool?,
+        completionDate: Date?
     ) {
         self.id = id
         self.name = name
@@ -119,6 +121,7 @@ public struct ProjectOutput: Encodable {
         self.nextTask = nextTask
         self.containsSingletonActions = containsSingletonActions
         self.isStalled = isStalled
+        self.completionDate = completionDate
     }
 }
 
@@ -184,7 +187,8 @@ public func makeProjectOutput(from project: ProjectItem, fields: Set<String>, in
         hasChildren: fields.contains("hasChildren") ? project.hasChildren : nil,
         nextTask: fields.contains("nextTask") ? project.nextTask : nil,
         containsSingletonActions: fields.contains("containsSingletonActions") ? project.containsSingletonActions : nil,
-        isStalled: fields.contains("isStalled") ? project.isStalled : nil
+        isStalled: fields.contains("isStalled") ? project.isStalled : nil,
+        completionDate: fields.contains("completionDate") ? project.completionDate : nil
     )
 }
 

@@ -94,6 +94,37 @@
       return true;
     }
 
+    // Date parsing helper - available to all operations
+    function parseFilterDate(dateString, warnings) {
+      if (!dateString || typeof dateString !== "string") return null;
+      const parsed = new Date(dateString);
+      if (isNaN(parsed.getTime())) {
+        warnings.push("Invalid date filter value: " + dateString);
+        return null;
+      }
+      return parsed;
+    }
+
+    // Helper to get task date safely and convert to timestamp for comparison
+    function getTaskDateTimestamp(task, dateGetter) {
+      const date = safe(() => dateGetter(task));
+      if (!date) return null;
+      if (typeof date.getTime !== "function") return null;
+      const ts = date.getTime();
+      if (isNaN(ts)) return null;
+      return ts;
+    }
+
+    // Helper to get project date safely
+    function getProjectDateTimestamp(project, dateGetter) {
+      const date = safe(() => dateGetter(project));
+      if (!date) return null;
+      if (typeof date.getTime !== "function") return null;
+      const ts = date.getTime();
+      if (isNaN(ts)) return null;
+      return ts;
+    }
+
       const start = Date.now();
       const response = { schemaVersion: 1, requestId: requestId, ok: true, data: null, timingMs: null, warnings: [] };
 
@@ -160,29 +191,6 @@
             tasks = tasks.filter(t => isTaskAvailable(t));
           }
 
-          // Date range filters
-          // Robust date parsing helper that handles ISO8601 strings from Swift
-          function parseFilterDate(dateString, warnings) {
-            if (!dateString || typeof dateString !== "string") return null;
-            const parsed = new Date(dateString);
-            if (isNaN(parsed.getTime())) {
-              warnings.push("Invalid date filter value: " + dateString);
-              return null;
-            }
-            return parsed;
-          }
-
-          // Helper to get task date safely and convert to timestamp for comparison
-          function getTaskDateTimestamp(task, dateGetter) {
-            const date = safe(() => dateGetter(task));
-            if (!date) return null;
-            // Ensure it's a valid Date object with getTime method
-            if (typeof date.getTime !== "function") return null;
-            const ts = date.getTime();
-            if (isNaN(ts)) return null;
-            return ts;
-          }
-
           // Timezone-aware date calculations
           // Get user's timezone from request, fallback to local
           const userTimeZone = request.userTimeZone || Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -210,31 +218,6 @@
             return date;
           }
           
-          // Handle staleThreshold - mutually exclusive with deferBefore/completedAfter
-          // For completed tasks: converts to completedAfter date (today - threshold days)
-          // For incomplete tasks: converts to deferBefore date (today - threshold days)
-          if (filter.staleThreshold) {
-            const threshold = filter.staleThreshold;
-            let days = 30; // default
-            switch (threshold) {
-              case "1days": days = 1; break;
-              case "7days": days = 7; break;
-              case "30days": days = 30; break;
-              case "90days": days = 90; break;
-              case "180days": days = 180; break;
-              case "270days": days = 270; break;
-              case "365days": days = 365; break;
-            }
-            const cutoffDate = new Date(Date.now() - (days * 24 * 60 * 60 * 1000));
-            // If filtering for completed tasks, use completedAfter
-            // Otherwise use deferBefore for stale task detection
-            if (filter.completed === true) {
-              filter.completedAfter = cutoffDate.toISOString();
-            } else if (!filter.deferBefore) {
-              filter.deferBefore = cutoffDate.toISOString();
-            }
-          }
-
           // Batch all filters into single pass for performance
           // Pre-parse all filter dates once
           const filterState = {
@@ -369,7 +352,17 @@
           }
           
           tasks = filteredTasks;
-          
+
+          // Sort by completion date descending when filtering by completed tasks
+          // This matches OmniFocus Completed perspective behavior
+          if (filterState.completed === true || filterState.completedAfter || filterState.completedBefore) {
+            tasks.sort((a, b) => {
+              const dateA = getTaskDateTimestamp(a, t => t.completionDate) || 0;
+              const dateB = getTaskDateTimestamp(b, t => t.completionDate) || 0;
+              return dateB - dateA;
+            });
+          }
+
           // Apply offset for pagination (tasks already limited to page size during filtering)
           const offset = request.page && request.page.cursor ? parseInt(request.page.cursor, 10) : 0;
           const pageTasks = offset > 0 ? tasks.slice(offset) : tasks;
@@ -395,25 +388,6 @@
           const statusFilter = (typeof filter.statusFilter === "string") ? filter.statusFilter.toLowerCase() : "active";
           const includeTaskCounts = filter.includeTaskCounts === true;
           const reviewPerspective = filter.reviewPerspective === true;
-
-          function parseFilterDate(dateString, warnings) {
-            if (!dateString || typeof dateString !== "string") return null;
-            const parsed = new Date(dateString);
-            if (isNaN(parsed.getTime())) {
-              warnings.push("Invalid date filter value: " + dateString);
-              return null;
-            }
-            return parsed;
-          }
-
-          function getProjectDateTimestamp(project, dateGetter) {
-            const date = safe(() => dateGetter(project));
-            if (!date) return null;
-            if (typeof date.getTime !== "function") return null;
-            const ts = date.getTime();
-            if (isNaN(ts)) return null;
-            return ts;
-          }
 
           const reviewDueBefore = parseFilterDate(filter.reviewDueBefore, response.warnings);
           const reviewDueAfter = parseFilterDate(filter.reviewDueAfter, response.warnings);
@@ -455,7 +429,36 @@
               return true;
             });
           }
-          
+
+          // Completion date filtering for projects
+          const projectFilter = request.projectFilter || {};
+          const completedAfter = projectFilter.completedAfter ? parseFilterDate(projectFilter.completedAfter, response.warnings) : null;
+          const completedBefore = projectFilter.completedBefore ? parseFilterDate(projectFilter.completedBefore, response.warnings) : null;
+          const completedOnly = projectFilter.completed === true;
+
+          if (completedOnly || completedAfter || completedBefore) {
+            projects = projects.filter(p => {
+              const status = safe(() => p.status);
+              // Only include completed projects (status = Done), exclude dropped
+              if (status !== Project.Status.Done) return false;
+
+              const completionDate = getProjectDateTimestamp(p, project => project.completionDate);
+              if (completionDate === null) return false;
+
+              if (completedAfter && completionDate < completedAfter.getTime()) return false;
+              if (completedBefore && completionDate > completedBefore.getTime()) return false;
+
+              return true;
+            });
+
+            // Sort by completion date descending (most recent first) - matches OmniFocus Completed perspective
+            projects.sort((a, b) => {
+              const dateA = getProjectDateTimestamp(a, p => p.completionDate) || 0;
+              const dateB = getProjectDateTimestamp(b, p => p.completionDate) || 0;
+              return dateB - dateA;
+            });
+          }
+
           const limit = request.page && request.page.limit ? request.page.limit : 150;
           let offset = 0;
           if (request.page && request.page.cursor) {
@@ -497,6 +500,8 @@
               return "active";
             }
             
+            const completionDate = hasField("completionDate") ? safe(() => p.completionDate) : null;
+
             const item = {
               id: hasField("id") ? String(safe(() => p.id.primaryKey) || "") : null,
               name: hasField("name") ? String(safe(() => p.name) || "") : null,
@@ -505,7 +510,8 @@
               flagged: hasField("flagged") ? Boolean(p.flagged) : null,
               lastReviewDate: hasField("lastReviewDate") && lastReviewDate ? lastReviewDate.toISOString() : null,
               nextReviewDate: hasField("nextReviewDate") && nextReviewDate ? nextReviewDate.toISOString() : null,
-              reviewInterval: hasField("reviewInterval") ? reviewIntervalPayload : null
+              reviewInterval: hasField("reviewInterval") ? reviewIntervalPayload : null,
+              completionDate: hasField("completionDate") && completionDate ? completionDate.toISOString() : null
             };
             
             // Calculate task counts from flattenedTasks
@@ -665,12 +671,110 @@
           }
         } else if (request.op === "get_task_counts") {
           const filter = request.filter || {};
-          const inboxOnly = filter.inboxOnly === true;
-          const tasks = inboxOnly ? (function(){
-            const arr = [];
-            inbox.apply(task => arr.push(task));
-            return arr;
-          })() : flattenedTasks;
+
+          // Use same filtering logic as list_tasks for consistency
+          let tasks = flattenedTasks;
+
+          // Filter by inbox only if specified
+          if (filter.inboxOnly === true) {
+            tasks = [];
+            inbox.apply(task => tasks.push(task));
+          }
+
+          // Parse filter dates
+          const filterState = {
+            completed: filter.completed,
+            flagged: filter.flagged,
+            availableOnly: filter.availableOnly,
+            projectFilter: filter.project,
+            dueBefore: filter.dueBefore ? parseFilterDate(filter.dueBefore, response.warnings) : null,
+            dueAfter: filter.dueAfter ? parseFilterDate(filter.dueAfter, response.warnings) : null,
+            deferBefore: filter.deferBefore ? parseFilterDate(filter.deferBefore, response.warnings) : null,
+            deferAfter: filter.deferAfter ? parseFilterDate(filter.deferAfter, response.warnings) : null,
+            completedBefore: filter.completedBefore ? parseFilterDate(filter.completedBefore, response.warnings) : null,
+            completedAfter: filter.completedAfter ? parseFilterDate(filter.completedAfter, response.warnings) : null,
+            tags: Array.isArray(filter.tags) ? filter.tags : null,
+            untaggedOnly: Array.isArray(filter.tags) && filter.tags.length === 0,
+            maxEstimatedMinutes: filter.maxEstimatedMinutes,
+            minEstimatedMinutes: filter.minEstimatedMinutes
+          };
+
+          // Apply filters
+          tasks = tasks.filter(t => {
+            if (filterState.completed !== undefined) {
+              const taskCompleted = Boolean(t.completed);
+              if (taskCompleted !== filterState.completed) return false;
+            }
+            if (filterState.flagged !== undefined) {
+              const taskFlagged = Boolean(t.flagged);
+              if (taskFlagged !== filterState.flagged) return false;
+            }
+            if (filterState.availableOnly) {
+              if (!isTaskAvailable(t)) return false;
+            }
+            if (filterState.projectFilter) {
+              const project = safe(() => t.containingProject);
+              if (!project) return false;
+              const pid = String(safe(() => project.id.primaryKey) || "");
+              const pname = String(safe(() => project.name) || "");
+              if (pid !== filterState.projectFilter && pname !== filterState.projectFilter) return false;
+            }
+            if (filterState.dueBefore) {
+              const due = getTaskDateTimestamp(t, task => task.dueDate);
+              if (due === null || due > filterState.dueBefore.getTime()) return false;
+            }
+            if (filterState.dueAfter) {
+              const due = getTaskDateTimestamp(t, task => task.dueDate);
+              if (due === null || due < filterState.dueAfter.getTime()) return false;
+            }
+            if (filterState.deferBefore) {
+              const defer = getTaskDateTimestamp(t, task => task.deferDate);
+              if (defer === null || defer > filterState.deferBefore.getTime()) return false;
+            }
+            if (filterState.deferAfter) {
+              const defer = getTaskDateTimestamp(t, task => task.deferDate);
+              if (defer === null || defer < filterState.deferAfter.getTime()) return false;
+            }
+            if (filterState.completedBefore) {
+              const completed = getTaskDateTimestamp(t, task => task.completionDate);
+              if (completed === null || completed > filterState.completedBefore.getTime()) return false;
+            }
+            if (filterState.completedAfter) {
+              const completed = getTaskDateTimestamp(t, task => task.completionDate);
+              if (completed === null || completed < filterState.completedAfter.getTime()) return false;
+            }
+            if (filterState.maxEstimatedMinutes !== undefined) {
+              const minutes = safe(() => t.estimatedMinutes);
+              if (minutes === null || minutes === undefined || minutes > filterState.maxEstimatedMinutes) return false;
+            }
+            if (filterState.minEstimatedMinutes !== undefined) {
+              const minutes = safe(() => t.estimatedMinutes);
+              if (minutes === null || minutes === undefined || minutes < filterState.minEstimatedMinutes) return false;
+            }
+            if (filterState.tags) {
+              const tags = safe(() => t.tags) || [];
+              if (filterState.untaggedOnly) {
+                if (tags.length > 0) return false;
+              } else {
+                const hasMatchingTag = tags.some(tag => {
+                  const tagId = String(safe(() => tag.id.primaryKey) || "");
+                  const tagName = String(safe(() => tag.name) || "");
+                  return filterState.tags.some(filterTag => tagId === filterTag || tagName === filterTag);
+                });
+                if (!hasMatchingTag) return false;
+              }
+            }
+            return true;
+          });
+
+          // Sort by completion date descending when filtering by completion
+          if (filterState.completed === true || filterState.completedAfter || filterState.completedBefore) {
+            tasks.sort((a, b) => {
+              const dateA = getTaskDateTimestamp(a, t => t.completionDate) || 0;
+              const dateB = getTaskDateTimestamp(b, t => t.completionDate) || 0;
+              return dateB - dateA;
+            });
+          }
 
           const counts = { total: 0, completed: 0, available: 0, flagged: 0 };
           tasks.forEach(t => {

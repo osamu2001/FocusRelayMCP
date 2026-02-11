@@ -12,6 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Optional total count with includeTotalCount**: Set `includeTotalCount: true` in the filter to get `totalCount` (total matching items without pagination)
 - **CLI support**: Added `--include-total-count` flag to `focusrelay list-tasks` command
 - **Prevents LLM counting errors**: Explicit counts eliminate manual counting mistakes
+- **Project completion date support**: Added `completionDate` field to projects (returned when requested)
+- **Project completion filtering**: Filter projects by `completed`, `completedAfter`, `completedBefore` to find completed projects in time windows
+- **Automatic sorting by completion date**: Results sorted by `completionDate` descending when filtering by completion (matches OmniFocus Completed perspective)
+- **Enhanced get_task_counts**: Now supports full filtering including completion date windows for accurate time-window counts
+- **Removed staleThreshold**: Removed deprecated convenience filter in favor of explicit date windows
 - Initial release with core MCP server functionality
 - OmniFocus plugin for automation
 - Timezone-aware queries

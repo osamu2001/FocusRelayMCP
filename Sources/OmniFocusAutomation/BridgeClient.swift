@@ -90,6 +90,9 @@ final class BridgeClient: @unchecked Sendable {
         reviewDueBefore: Date?,
         reviewDueAfter: Date?,
         reviewPerspective: Bool,
+        completed: Bool?,
+        completedBefore: Date?,
+        completedAfter: Date?,
         fields: [String]?
     ) throws -> Page<ProjectItem> {
         let requestId = UUID().uuidString
@@ -98,7 +101,10 @@ final class BridgeClient: @unchecked Sendable {
             includeTaskCounts: includeTaskCounts,
             reviewDueBefore: reviewDueBefore,
             reviewDueAfter: reviewDueAfter,
-            reviewPerspective: reviewPerspective
+            reviewPerspective: reviewPerspective,
+            completed: completed,
+            completedBefore: completedBefore,
+            completedAfter: completedAfter
         )
         let request = BridgeRequest(
             schemaVersion: 1,
@@ -136,7 +142,8 @@ final class BridgeClient: @unchecked Sendable {
                     hasChildren: payload.hasChildren,
                     nextTask: nextTask,
                     containsSingletonActions: payload.containsSingletonActions,
-                    isStalled: payload.isStalled
+                    isStalled: payload.isStalled,
+                    completionDate: payload.completionDate
                 )
             }
             return Page(items: items, nextCursor: payloadPage.nextCursor, returnedCount: payloadPage.returnedCount, totalCount: payloadPage.totalCount)
