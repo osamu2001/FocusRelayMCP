@@ -87,11 +87,21 @@ The binary will be at `.build/release/focusrelay` (CLI + MCP server).
 
 ### Step 2: Install the OmniFocus Plugin
 
+**Homebrew users:** Copy the plugin from the Homebrew installation:
+```bash
+cp -r $(brew --prefix focusrelay)/share/focusrelay/Plugin/FocusRelayBridge.omnijs \
+  ~/Library/Containers/com.omnigroup.OmniFocus4/Data/Library/Application\ Support/Plug-Ins/
+```
+
+**Developer installation:**
 ```bash
 ./scripts/install-plugin.sh
 ```
 
 This installs the FocusRelay Bridge plugin to your OmniFocus plugin directory.
+
+**⚠️ IMPORTANT: When upgrading, you must reinstall the plugin!**
+The plugin JavaScript changes frequently and must stay in sync with the binary.
 
 ### Step 3: Configure MCP
 
