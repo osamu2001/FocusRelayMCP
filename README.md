@@ -37,7 +37,7 @@ Stop clicking through endless task lists. Just ask:
 - **Time-based Queries**: Natural language time period filtering
 - **Project Health**: Detect stalled projects and missing next actions
 - **Context Awareness**: Tag-based filtering and availability
-- **Stale Task Detection**: 7d/30d/90d/180d/365d threshold filtering
+- **Completion Date Filtering**: Query completed tasks/projects by specific date ranges
 - **Smart Filtering**: By tags, due dates, defer dates, completion, duration
 - **Timezone Aware**: Automatic local timezone detection and handling
 - **High Performance**: Single-pass filtering with early exit optimization
