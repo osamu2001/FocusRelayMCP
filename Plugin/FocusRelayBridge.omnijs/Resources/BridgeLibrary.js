@@ -87,6 +87,31 @@
     function isTaskAvailable(task) {
       const blocked = safe(() => task.blocked);
       if (blocked === true) { return false; }
+
+      const project = safe(() => task.containingProject);
+      if (project) {
+        if (Boolean(safe(() => project.completed))) { return false; }
+        if (safe(() => project.dropDate)) { return false; }
+
+        const status = safe(() => project.status);
+        if (status === Project.Status.OnHold) { return false; }
+        if (status === Project.Status.Dropped) { return false; }
+        if (status === Project.Status.Done) { return false; }
+
+        const statusStr = String(status);
+        if (statusStr.includes("OnHold")) { return false; }
+        if (statusStr.includes("Dropped")) { return false; }
+        if (statusStr.includes("Done")) { return false; }
+
+        if (Boolean(safe(() => project.onHold))) { return false; }
+      }
+
+      const parent = safe(() => task.parent);
+      if (parent) {
+        if (Boolean(safe(() => parent.completed))) { return false; }
+        if (safe(() => parent.dropDate)) { return false; }
+      }
+
       const deferDate = safe(() => task.effectiveDeferDate);
       if (deferDate) {
         return deferDate.getTime() <= Date.now();
@@ -186,6 +211,7 @@
             });
           }
 
+          const projectView = (typeof filter.projectView === "string") ? filter.projectView.toLowerCase() : null;
           const availableOnly = (typeof filter.availableOnly === "boolean") ? filter.availableOnly : !isRemaining && !isEverything;
           if (availableOnly) {
             tasks = tasks.filter(t => isTaskAvailable(t));
@@ -247,6 +273,24 @@
           };
           
           // Helper function to check if a task matches all filters
+          function projectMatchesView(project) {
+            if (!project) { return false; }
+            if (!projectView || projectView === "all") { return true; }
+
+            const status = safe(() => project.status);
+            if (status === Project.Status.Active) { return projectView === "active"; }
+            if (status === Project.Status.OnHold) { return projectView === "onhold" || projectView === "on_hold"; }
+            if (status === Project.Status.Dropped) { return projectView === "dropped"; }
+            if (status === Project.Status.Done) { return projectView === "done" || projectView === "completed"; }
+
+            const statusStr = String(status);
+            if (statusStr.includes("OnHold")) { return projectView === "onhold" || projectView === "on_hold"; }
+            if (statusStr.includes("Dropped")) { return projectView === "dropped"; }
+            if (statusStr.includes("Done")) { return projectView === "done" || projectView === "completed"; }
+
+            return projectView === "active";
+          }
+
           function taskMatchesFilters(t) {
             // Status checks
             if (filterState.completed !== undefined) {
@@ -268,6 +312,10 @@
               const pid = String(safe(() => project.id.primaryKey) || "");
               const pname = String(safe(() => project.name) || "");
               if (pid !== filterState.projectFilter && pname !== filterState.projectFilter) return false;
+            }
+            if (projectView) {
+              const project = safe(() => t.containingProject);
+              if (!projectMatchesView(project)) return false;
             }
             
             // Date checks

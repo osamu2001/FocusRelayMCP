@@ -82,6 +82,28 @@ func bridgeProjectCountsLive() throws {
 }
 
 @Test
+func bridgeListTasksRespectsProjectViewLive() throws {
+    let env = ProcessInfo.processInfo.environment
+    guard env["FOCUS_RELAY_BRIDGE_TESTS"] == "1" else {
+        return
+    }
+
+    guard let onHoldProjectID = env["FOCUS_RELAY_ONHOLD_PROJECT_ID"], !onHoldProjectID.isEmpty else {
+        return
+    }
+
+    let client = BridgeClient()
+    let filter = TaskFilter(completed: false, availableOnly: false, project: onHoldProjectID, projectView: "onHold")
+    let page = PageRequest(limit: 5)
+    let result = try client.listTasks(filter: filter, page: page, fields: ["id", "name"])
+    #expect(result.items.count >= 0)
+
+    let activeFilter = TaskFilter(completed: false, availableOnly: false, project: onHoldProjectID, projectView: "active")
+    let activeResult = try client.listTasks(filter: activeFilter, page: page, fields: ["id", "name"])
+    #expect(activeResult.items.isEmpty)
+}
+
+@Test
 func bridgeProjectsPagingLive() throws {
     let env = ProcessInfo.processInfo.environment
     guard env["FOCUS_RELAY_BRIDGE_TESTS"] == "1" else {
