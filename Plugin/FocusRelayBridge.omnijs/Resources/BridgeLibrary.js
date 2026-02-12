@@ -84,14 +84,69 @@
       };
     }
 
+    function taskStatus(task) {
+      return safe(() => task.taskStatus);
+    }
+
+    function isRemainingStatus(task) {
+      const st = taskStatus(task);
+      return st !== Task.Status.Completed && st !== Task.Status.Dropped;
+    }
+
+    function isAvailableStatus(task) {
+      const st = taskStatus(task);
+      return st === Task.Status.Available ||
+        st === Task.Status.DueSoon ||
+        st === Task.Status.Next ||
+        st === Task.Status.Overdue;
+    }
+
+    function projectMatchesView(project, view, allowOnHoldInEverything) {
+      if (!project) { return false; }
+      if (!view || view === "all") { return true; }
+
+      const normalizedView = view.toLowerCase();
+      const allowOnHold = allowOnHoldInEverything && normalizedView === "everything";
+
+      const status = safe(() => project.status);
+      if (status === Project.Status.Active) { return normalizedView === "active"; }
+      if (status === Project.Status.OnHold) { return allowOnHold || normalizedView === "onhold" || normalizedView === "on_hold"; }
+      if (status === Project.Status.Dropped) { return normalizedView === "dropped"; }
+      if (status === Project.Status.Done) { return normalizedView === "done" || normalizedView === "completed"; }
+
+      const statusStr = String(status);
+      if (statusStr.includes("OnHold")) { return allowOnHold || normalizedView === "onhold" || normalizedView === "on_hold"; }
+      if (statusStr.includes("Dropped")) { return normalizedView === "dropped"; }
+      if (statusStr.includes("Done")) { return normalizedView === "done" || normalizedView === "completed"; }
+
+      return normalizedView === "active";
+    }
+
     function isTaskAvailable(task) {
-      const blocked = safe(() => task.blocked);
-      if (blocked === true) { return false; }
-      const deferDate = safe(() => task.effectiveDeferDate);
-      if (deferDate) {
-        return deferDate.getTime() <= Date.now();
+      const project = safe(() => task.containingProject);
+      if (project) {
+        const status = safe(() => project.status);
+        if (status === Project.Status.OnHold) { return false; }
+        if (status === Project.Status.Dropped) { return false; }
+        if (status === Project.Status.Done) { return false; }
+
+        const statusStr = String(status);
+        if (statusStr.includes("OnHold")) { return false; }
+        if (statusStr.includes("Dropped")) { return false; }
+        if (statusStr.includes("Done")) { return false; }
+
+        if (Boolean(safe(() => project.completed))) { return false; }
+        if (safe(() => project.dropDate)) { return false; }
+        if (Boolean(safe(() => project.onHold))) { return false; }
       }
-      return true;
+
+      const parent = safe(() => task.parent);
+      if (parent) {
+        if (Boolean(safe(() => parent.completed))) { return false; }
+        if (safe(() => parent.dropDate)) { return false; }
+      }
+
+      return isAvailableStatus(task);
     }
 
     // Date parsing helper - available to all operations
@@ -172,18 +227,7 @@
           if (typeof filter.completed === "boolean") {
             tasks = tasks.filter(t => Boolean(t.completed) === filter.completed);
           } else if (!isEverything) {
-            tasks = tasks.filter(t => !Boolean(t.completed));
-          }
-
-          if (!isEverything) {
-            tasks = tasks.filter(t => !t.dropDate);
-            tasks = tasks.filter(t => {
-              const parent = safe(() => t.parent);
-              if (!parent) { return true; }
-              if (safe(() => parent.dropDate)) { return false; }
-              if (Boolean(safe(() => parent.completed))) { return false; }
-              return true;
-            });
+            tasks = tasks.filter(t => isRemainingStatus(t));
           }
 
           const availableOnly = (typeof filter.availableOnly === "boolean") ? filter.availableOnly : !isRemaining && !isEverything;
@@ -246,6 +290,9 @@
             untaggedOnly: Array.isArray(filter.tags) && filter.tags.length === 0
           };
           
+          const projectView = (typeof filter.projectView === "string") ? filter.projectView.toLowerCase() : null;
+          const isEverythingView = projectView === "everything";
+
           // Helper function to check if a task matches all filters
           function taskMatchesFilters(t) {
             // Status checks
@@ -262,12 +309,15 @@
             }
             
             // Project check
+            const project = safe(() => t.containingProject);
             if (filterState.projectFilter) {
-              const project = safe(() => t.containingProject);
               if (!project) return false;
               const pid = String(safe(() => project.id.primaryKey) || "");
               const pname = String(safe(() => project.name) || "");
               if (pid !== filterState.projectFilter && pname !== filterState.projectFilter) return false;
+            }
+            if (projectView) {
+              if (!projectMatchesView(project, projectView, true)) return false;
             }
             
             // Date checks
@@ -699,6 +749,17 @@
             minEstimatedMinutes: filter.minEstimatedMinutes
           };
 
+          const view = (typeof filter.projectView === "string") ? filter.projectView.toLowerCase() : "remaining";
+          const isEverything = view === "everything";
+          const isAvailableView = view === "available";
+
+          if (filterState.completed === undefined && !isEverything) {
+            tasks = tasks.filter(t => isRemainingStatus(t));
+          }
+          if (isAvailableView) {
+            tasks = tasks.filter(t => isAvailableStatus(t));
+          }
+
           // Apply filters
           tasks = tasks.filter(t => {
             if (filterState.completed !== undefined) {
@@ -838,32 +899,11 @@
             const isEverything = view === "everything";
             const isAvailableView = view === "available";
 
-            function status(task) {
-              return safe(() => task.taskStatus);
-            }
-
-            function isRemainingStatus(task) {
-              const st = status(task);
-              return st !== Task.Status.Completed && st !== Task.Status.Dropped;
-            }
-
-            function isAvailableStatus(task) {
-              const st = status(task);
-              return st === Task.Status.Available ||
-                st === Task.Status.DueSoon ||
-                st === Task.Status.Next ||
-                st === Task.Status.Overdue;
-            }
-
             function projectAllowed(p) {
-              if (!p) { return false; }
-              if (!isEverything) {
-                if (Boolean(safe(() => p.completed))) { return false; }
-                if (safe(() => p.dropDate)) { return false; }
-              }
-              if (view === "remaining" || isAvailableView) {
-                if (Boolean(safe(() => p.onHold))) { return false; }
-              }
+              if (!projectMatchesView(p, view, true)) { return false; }
+              if (Boolean(safe(() => p.completed))) { return false; }
+              if (safe(() => p.dropDate)) { return false; }
+              if (view !== "everything" && Boolean(safe(() => p.onHold))) { return false; }
               return true;
             }
 
