@@ -18,15 +18,53 @@ public final class OmniFocusBridgeService: OmniFocusService {
         return try client.getTask(id: id, fields: fields)
     }
 
-    public func listProjects(page: PageRequest, statusFilter: String?, includeTaskCounts: Bool, fields: [String]?) async throws -> Page<ProjectItem> {
-        let fieldsKey = (fields ?? []).joined(separator: ",")
-        let key = CacheKey(limit: page.limit, cursor: page.cursor, fieldsKey: fieldsKey)
-        if let cached = await cache.getProjects(key: key) {
-            return cached
+    public func listProjects(
+        page: PageRequest,
+        statusFilter: String?,
+        includeTaskCounts: Bool,
+        reviewDueBefore: Date?,
+        reviewDueAfter: Date?,
+        reviewPerspective: Bool,
+        completed: Bool?,
+        completedBefore: Date?,
+        completedAfter: Date?,
+        fields: [String]?
+    ) async throws -> Page<ProjectItem> {
+        let shouldBypassCache = reviewPerspective || reviewDueBefore != nil || reviewDueAfter != nil || completed != nil || completedBefore != nil || completedAfter != nil
+        if !shouldBypassCache {
+            let fieldsKey = (fields ?? []).joined(separator: ",")
+            let key = CacheKey(limit: page.limit, cursor: page.cursor, fieldsKey: fieldsKey)
+            if let cached = await cache.getProjects(key: key) {
+                return cached
+            }
+            let pageResult = try client.listProjects(
+                page: page,
+                statusFilter: statusFilter,
+                includeTaskCounts: includeTaskCounts,
+                reviewDueBefore: reviewDueBefore,
+                reviewDueAfter: reviewDueAfter,
+                reviewPerspective: reviewPerspective,
+                completed: completed,
+                completedBefore: completedBefore,
+                completedAfter: completedAfter,
+                fields: fields
+            )
+            await cache.setProjects(pageResult, key: key, ttl: cacheTTL)
+            return pageResult
         }
-        let pageResult = try client.listProjects(page: page, statusFilter: statusFilter, includeTaskCounts: includeTaskCounts, fields: fields)
-        await cache.setProjects(pageResult, key: key, ttl: cacheTTL)
-        return pageResult
+
+        return try client.listProjects(
+            page: page,
+            statusFilter: statusFilter,
+            includeTaskCounts: includeTaskCounts,
+            reviewDueBefore: reviewDueBefore,
+            reviewDueAfter: reviewDueAfter,
+            reviewPerspective: reviewPerspective,
+            completed: completed,
+            completedBefore: completedBefore,
+            completedAfter: completedAfter,
+            fields: fields
+        )
     }
 
     public func listTags(page: PageRequest, statusFilter: String?, includeTaskCounts: Bool) async throws -> Page<TagItem> {

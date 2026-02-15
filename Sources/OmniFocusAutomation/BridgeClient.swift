@@ -57,7 +57,7 @@ final class BridgeClient: @unchecked Sendable {
                     available: payload.available ?? false
                 )
             }
-            return Page(items: items, nextCursor: payloadPage.nextCursor, totalCount: payloadPage.totalCount)
+            return Page(items: items, nextCursor: payloadPage.nextCursor, returnedCount: payloadPage.returnedCount, totalCount: payloadPage.totalCount)
         }
 
         let message = response.error?.message ?? "Unknown bridge error"
@@ -83,9 +83,29 @@ final class BridgeClient: @unchecked Sendable {
         return try sendRequest(request, responseType: BridgePing.self)
     }
 
-    func listProjects(page: PageRequest, statusFilter: String?, includeTaskCounts: Bool, fields: [String]?) throws -> Page<ProjectItem> {
+    func listProjects(
+        page: PageRequest,
+        statusFilter: String?,
+        includeTaskCounts: Bool,
+        reviewDueBefore: Date?,
+        reviewDueAfter: Date?,
+        reviewPerspective: Bool,
+        completed: Bool?,
+        completedBefore: Date?,
+        completedAfter: Date?,
+        fields: [String]?
+    ) throws -> Page<ProjectItem> {
         let requestId = UUID().uuidString
-        let projectFilter = ProjectFilter(statusFilter: statusFilter, includeTaskCounts: includeTaskCounts)
+        let projectFilter = ProjectFilter(
+            statusFilter: statusFilter,
+            includeTaskCounts: includeTaskCounts,
+            reviewDueBefore: reviewDueBefore,
+            reviewDueAfter: reviewDueAfter,
+            reviewPerspective: reviewPerspective,
+            completed: completed,
+            completedBefore: completedBefore,
+            completedAfter: completedAfter
+        )
         let request = BridgeRequest(
             schemaVersion: 1,
             requestId: requestId,
@@ -104,12 +124,16 @@ final class BridgeClient: @unchecked Sendable {
         if response.ok, let payloadPage = response.data {
             let items = payloadPage.items.map { payload in
                 let nextTask = payload.nextTask.map { ProjectTaskSummary(id: $0.id ?? "", name: $0.name ?? "") }
+                let reviewInterval = payload.reviewInterval.map { ReviewInterval(steps: $0.steps, unit: $0.unit) }
                 return ProjectItem(
                     id: payload.id ?? "",
                     name: payload.name ?? "",
                     note: payload.note,
                     status: payload.status ?? "",
                     flagged: payload.flagged ?? false,
+                    lastReviewDate: payload.lastReviewDate,
+                    nextReviewDate: payload.nextReviewDate,
+                    reviewInterval: reviewInterval,
                     availableTasks: payload.availableTasks,
                     remainingTasks: payload.remainingTasks,
                     completedTasks: payload.completedTasks,
@@ -118,10 +142,11 @@ final class BridgeClient: @unchecked Sendable {
                     hasChildren: payload.hasChildren,
                     nextTask: nextTask,
                     containsSingletonActions: payload.containsSingletonActions,
-                    isStalled: payload.isStalled
+                    isStalled: payload.isStalled,
+                    completionDate: payload.completionDate
                 )
             }
-            return Page(items: items, nextCursor: payloadPage.nextCursor, totalCount: payloadPage.totalCount)
+            return Page(items: items, nextCursor: payloadPage.nextCursor, returnedCount: payloadPage.returnedCount, totalCount: payloadPage.totalCount)
         }
 
         let message = response.error?.message ?? "Unknown bridge error"
@@ -157,7 +182,7 @@ final class BridgeClient: @unchecked Sendable {
                     totalTasks: payload.totalTasks
                 )
             }
-            return Page(items: items, nextCursor: payloadPage.nextCursor, totalCount: payloadPage.totalCount)
+            return Page(items: items, nextCursor: payloadPage.nextCursor, returnedCount: payloadPage.returnedCount, totalCount: payloadPage.totalCount)
         }
 
         let message = response.error?.message ?? "Unknown bridge error"

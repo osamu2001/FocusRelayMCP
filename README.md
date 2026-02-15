@@ -37,7 +37,7 @@ Stop clicking through endless task lists. Just ask:
 - **Time-based Queries**: Natural language time period filtering
 - **Project Health**: Detect stalled projects and missing next actions
 - **Context Awareness**: Tag-based filtering and availability
-- **Stale Task Detection**: 7d/30d/90d/180d/365d threshold filtering
+- **Completion Date Filtering**: Query completed tasks/projects by specific date ranges
 - **Smart Filtering**: By tags, due dates, defer dates, completion, duration
 - **Timezone Aware**: Automatic local timezone detection and handling
 - **High Performance**: Single-pass filtering with early exit optimization
@@ -53,7 +53,7 @@ If you have [Homebrew](https://brew.sh) installed, this is the easiest method:
 brew tap deverman/focus-relay
 
 # Install the MCP server and OmniFocus plugin
-brew install focus-relay-mcp
+brew install focusrelay
 ```
 
 Then continue with **Step 3: Restart OmniFocus** below.
@@ -83,31 +83,57 @@ cd FocusRelayMCP
 swift build -c release
 ```
 
-The binary will be at `.build/release/focus-relay-mcp`
+The binary will be at `.build/release/focusrelay` (CLI + MCP server).
 
 ### Step 2: Install the OmniFocus Plugin
 
+**Homebrew users:** Copy the plugin from the Homebrew installation:
+```bash
+cp -r $(brew --prefix focusrelay)/share/focusrelay/Plugin/FocusRelayBridge.omnijs \
+  ~/Library/Containers/com.omnigroup.OmniFocus4/Data/Library/Application\ Support/Plug-Ins/
+```
+
+**Developer installation:**
 ```bash
 ./scripts/install-plugin.sh
 ```
 
 This installs the FocusRelay Bridge plugin to your OmniFocus plugin directory.
 
+**⚠️ IMPORTANT: When upgrading, you must reinstall the plugin!**
+The plugin JavaScript changes frequently and must stay in sync with the binary.
+
 ### Step 3: Configure MCP
 
 Add to your opencode.json or Claude Desktop config:
 
+**For Homebrew installations (recommended):**
 ```json
 {
   "mcp": {
-    "focus-relay-mcp": {
+    "focusrelay": {
       "type": "local",
-      "command": ["/path/to/FocusRelayMCP/.build/release/focus-relay-mcp"],
+      "command": ["/opt/homebrew/bin/focusrelay", "serve"],
       "enabled": true
     }
   }
 }
 ```
+
+**For developer installations (build from source):**
+```json
+{
+  "mcp": {
+    "focusrelay": {
+      "type": "local",
+      "command": ["/path/to/FocusRelayMCP/.build/release/focusrelay", "serve"],
+      "enabled": true
+    }
+  }
+}
+```
+
+Note: `focusrelay` without arguments shows help; use `focusrelay serve` to run the MCP server.
 
 ### Step 4: Restart OmniFocus
 
@@ -139,6 +165,33 @@ Or manually: Quit OmniFocus completely and reopen it.
 - Check if it's enabled, or try removing and reinstalling it
 - Restart OmniFocus and try again
 
+## CLI Usage
+
+The `focusrelay` binary provides command-line equivalents of the MCP tools.
+Run `focusrelay --help` for the full command list.
+
+```bash
+# List tasks with selected fields
+focusrelay list-tasks --fields id,name,completionDate --completed true --completed-after 2026-02-10T00:00:00Z
+
+# List projects with task counts
+focusrelay list-projects --status active --include-task-counts
+
+# List completed projects in last 30 days (sorted by completion date)
+focusrelay list-projects --completed-after 2026-01-12T00:00:00Z --fields name,completionDate
+
+# Fetch a single task by ID
+focusrelay get-task <task-id> --fields id,name,note
+
+# Check bridge health
+focusrelay bridge-health-check
+
+# List tasks with total count (shows returnedCount and totalCount)
+focusrelay list-tasks --fields name --limit 10 --include-total-count
+```
+
+Dates should be ISO8601 (e.g. `2026-02-04T12:00:00Z`).
+
 ## Usage Examples
 
 ### Daily Planning
@@ -163,9 +216,19 @@ Or manually: Quit OmniFocus completely and reopen it.
 - "Find my flagged items"
 
 ### Status Queries
-- "What did I accomplish this week?"
+- "What did I accomplish this week?" (tasks completed in last 7 days)
+- "What tasks did I complete today?"
+- "What projects did I complete in the last 30 days?"
+- "How many projects did I complete this month?" (count without listing)
 - "How many tasks are in my inbox?"
 - "Show me completed tasks"
+
+### Completed Perspective Parity
+All completion queries match the OmniFocus Completed perspective:
+- **Includes**: Completed actions, action groups, and projects
+- **Excludes**: Dropped items (only status=done)
+- **Sorting**: Results sorted by completionDate descending (most recent first)
+- **Time windows**: Use completedAfter/completedBefore for precise date filtering
 
 ## Available Tools
 
@@ -173,17 +236,38 @@ Or manually: Quit OmniFocus completely and reopen it.
 Query tasks with various filters:
 - `dueBefore`, `dueAfter`: Filter by due dates
 - `deferBefore`, `deferAfter`: Filter by defer dates
+- `completedBefore`, `completedAfter`: Filter by completion dates (implies `completed: true`)
 - `tags`: Filter by specific tags
 - `project`: Filter by project
 - `flagged`: Show only flagged tasks
 - `completed`: Show completed or remaining tasks
-- `staleThreshold`: Convenience filter (7days, 30days, 90days, 180days, 270days, 365days)
+- `includeTotalCount`: Set to `true` to include total count of all matching tasks (see Response Counts below)
+- **Sorting**: When filtering by completion, results are automatically sorted by `completionDate` descending (most recent first) to match OmniFocus Completed perspective
+
+**Response Counts:**
+All list operations now include automatic counting to prevent errors:
+- `returnedCount`: Always included - shows actual items in this response
+- `totalCount`: Only included when `includeTotalCount: true` - shows total matching items
+
+Example response:
+```json
+{
+  "items": [...],
+  "returnedCount": 10,
+  "totalCount": 1784,
+  "nextCursor": "10"
+}
+```
 
 ### list_projects
 Query projects with status and task counts:
 - `statusFilter`: active, onHold, dropped, done, all
+- `completed`: Filter by completion status (true/false)
+- `completedBefore`, `completedAfter`: Filter by completion date windows (implies completed projects, excludes dropped)
 - `includeTaskCounts`: Get available/remaining/completed task counts
+- `completionDate`: Field available when requested
 - Returns: hasChildren, isStalled, nextTask for project health
+- **Sorting**: When filtering by completion, results are automatically sorted by `completionDate` descending (most recent first) to match OmniFocus Completed perspective
 
 ### list_tags
 Query tags with task counts:
@@ -191,10 +275,21 @@ Query tags with task counts:
 - `includeTaskCounts`: Get task counts per tag
 
 ### get_task_counts
-Get aggregate counts for any filter combination.
+Get aggregate counts for any filter combination. Supports full task filtering including:
+- All task filters: completed, completedAfter/Before, tags, project, availableOnly, etc.
+- **Time-window counts**: Get counts of completed tasks in specific date ranges (e.g., "completed today", "completed last 30 days")
+- **Sorting**: When filtering by completion, applies same sorting as list_tasks
+
+Example: Get count of tasks completed today without listing them
 
 ### get_project_counts
-Get counts of projects and actions.
+Get counts of projects and actions. Supports completion date filtering:
+- **Completed projects count**: Use `completedAfter`/`completedBefore` to count completed projects in time windows
+- **Returns**: `projects` (count of completed projects), `actions` (count of completed tasks in those projects)
+- **Excludes dropped**: Only counts status=done projects
+- **Use case**: "How many projects did I complete this month?" without listing all items
+
+Example: Count projects completed in the last 30 days
 
 ## Timezone Handling
 
@@ -211,6 +306,7 @@ The timezone is detected from your macOS system settings and passed to OmniFocus
 - **Single-Pass Filtering**: All filters applied in one iteration (optimized for speed)
 - **Early Exit**: Stops processing once page limit is reached
 - **Typical Response Time**: ~1 second (limited by OmniFocus IPC)
+- **Reduced API Calls**: Use `includeTotalCount: true` to get counts and list in one call instead of two
 
 ## Troubleshooting
 

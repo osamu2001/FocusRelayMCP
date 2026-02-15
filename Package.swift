@@ -9,15 +9,30 @@ let package = Package(
         .macOS(.v13)
     ],
     products: [
-        .executable(name: "focus-relay-mcp", targets: ["FocusRelayMCP"])
+        .executable(name: "focusrelay", targets: ["FocusRelayCLI"])
     ],
     dependencies: [
         .package(url: "https://github.com/modelcontextprotocol/swift-sdk.git", from: "0.10.0"),
-        .package(url: "https://github.com/apple/swift-log.git", from: "1.5.0")
+        .package(url: "https://github.com/apple/swift-log.git", from: "1.5.0"),
+        .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.3.0")
     ],
     targets: [
         .target(
             name: "OmniFocusCore"
+        ),
+        .target(
+            name: "FocusRelayOutput",
+            dependencies: ["OmniFocusCore"]
+        ),
+        .target(
+            name: "FocusRelayServer",
+            dependencies: [
+                "OmniFocusCore",
+                "OmniFocusAutomation",
+                "FocusRelayOutput",
+                .product(name: "MCP", package: "swift-sdk"),
+                .product(name: "Logging", package: "swift-log")
+            ]
         ),
         .target(
             name: "OmniFocusAutomation",
@@ -27,12 +42,13 @@ let package = Package(
             ]
         ),
         .executableTarget(
-            name: "FocusRelayMCP",
+            name: "FocusRelayCLI",
             dependencies: [
                 "OmniFocusCore",
                 "OmniFocusAutomation",
-                .product(name: "MCP", package: "swift-sdk"),
-                .product(name: "Logging", package: "swift-log")
+                "FocusRelayOutput",
+                "FocusRelayServer",
+                .product(name: "ArgumentParser", package: "swift-argument-parser")
             ]
         ),
         .testTarget(
@@ -46,6 +62,18 @@ let package = Package(
             dependencies: [
                 "OmniFocusAutomation",
                 "OmniFocusCore"
+            ]
+        ),
+        .testTarget(
+            name: "FocusRelayCLITests",
+            dependencies: [
+                "FocusRelayCLI"
+            ]
+        ),
+        .testTarget(
+            name: "FocusRelayServerTests",
+            dependencies: [
+                "FocusRelayServer"
             ]
         )
     ]

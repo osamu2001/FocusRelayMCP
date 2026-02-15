@@ -19,3 +19,5 @@ This file tracks planned work and completion status.
 - [x] Add paging tests for projects/tags in bridge mode
 - [x] Add lock file cleanup policy in plug-in (optional)
 - [x] Document bridge install/test flow in README (short checklist)
+- [ ] Add completion date support for tasks (return `completedDate` and allow filtering by completed time)
+- [ ] After next release, update the Homebrew tap to the new tarball/SHA that includes the `focusrelay` binary (`focusrelay serve` for MCP).

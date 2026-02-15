@@ -86,7 +86,7 @@ public final class OmniAutomationService: OmniFocusService {
                 available: payload.available ?? false
             )
         }
-        return Page(items: items, nextCursor: payloadPage.nextCursor)
+        return Page(items: items, nextCursor: payloadPage.nextCursor, returnedCount: payloadPage.returnedCount, totalCount: payloadPage.totalCount)
     }
 
     public func getTask(id: String, fields: [String]?) async throws -> TaskItem {
@@ -94,8 +94,30 @@ public final class OmniAutomationService: OmniFocusService {
         throw AutomationError.notImplemented
     }
 
-    public func listProjects(page: PageRequest, statusFilter: String?, includeTaskCounts: Bool, fields: [String]?) async throws -> Page<ProjectItem> {
-        let request = ListProjectsRequest(page: page, statusFilter: statusFilter, includeTaskCounts: includeTaskCounts, fields: fields)
+    public func listProjects(
+        page: PageRequest,
+        statusFilter: String?,
+        includeTaskCounts: Bool,
+        reviewDueBefore: Date?,
+        reviewDueAfter: Date?,
+        reviewPerspective: Bool,
+        completed: Bool?,
+        completedBefore: Date?,
+        completedAfter: Date?,
+        fields: [String]?
+    ) async throws -> Page<ProjectItem> {
+        let request = ListProjectsRequest(
+            page: page,
+            statusFilter: statusFilter,
+            includeTaskCounts: includeTaskCounts,
+            reviewDueBefore: reviewDueBefore,
+            reviewDueAfter: reviewDueAfter,
+            reviewPerspective: reviewPerspective,
+            completed: completed,
+            completedBefore: completedBefore,
+            completedAfter: completedAfter,
+            fields: fields
+        )
         let requestData = try JSONEncoder().encode(request)
         guard let requestJSON = String(data: requestData, encoding: .utf8) else {
             throw AutomationError.executionFailed("Failed to encode request JSON")
@@ -107,22 +129,27 @@ public final class OmniAutomationService: OmniFocusService {
         let payloadPage = try decoder.decode(Page<ProjectItemPayload>.self, from: data)
         let items = payloadPage.items.map { payload in
             let nextTask = payload.nextTask.map { ProjectTaskSummary(id: $0.id ?? "", name: $0.name ?? "") }
+            let reviewInterval = payload.reviewInterval.map { ReviewInterval(steps: $0.steps, unit: $0.unit) }
             return ProjectItem(
                 id: payload.id ?? "",
                 name: payload.name ?? "",
                 note: payload.note,
                 status: payload.status ?? "",
                 flagged: payload.flagged ?? false,
+                lastReviewDate: payload.lastReviewDate,
+                nextReviewDate: payload.nextReviewDate,
+                reviewInterval: reviewInterval,
                 availableTasks: payload.availableTasks,
                 remainingTasks: payload.remainingTasks,
                 completedTasks: payload.completedTasks,
                 droppedTasks: payload.droppedTasks,
                 totalTasks: payload.totalTasks,
                 hasChildren: payload.hasChildren,
-                nextTask: nextTask
+                nextTask: nextTask,
+                completionDate: payload.completionDate
             )
         }
-        return Page(items: items, nextCursor: payloadPage.nextCursor)
+        return Page(items: items, nextCursor: payloadPage.nextCursor, returnedCount: payloadPage.returnedCount, totalCount: payloadPage.totalCount)
     }
 
     public func listTags(page: PageRequest, statusFilter: String?, includeTaskCounts: Bool) async throws -> Page<TagItem> {
@@ -166,6 +193,12 @@ private struct ListProjectsRequest: Codable {
     let page: PageRequest
     let statusFilter: String?
     let includeTaskCounts: Bool
+    let reviewDueBefore: Date?
+    let reviewDueAfter: Date?
+    let reviewPerspective: Bool
+    let completed: Bool?
+    let completedBefore: Date?
+    let completedAfter: Date?
     let fields: [String]?
 }
 
@@ -324,12 +357,28 @@ private func listProjectsScript(requestJSON: String) -> String {
       var slice = projects.slice(offset, offset + limit);
 
       var items = slice.map(function(p) {
+        var lastReviewDate = hasField("lastReviewDate") ? safe(function() { return p.lastReviewDate(); }) : null;
+        var nextReviewDate = hasField("nextReviewDate") ? safe(function() { return p.nextReviewDate(); }) : null;
+        var reviewInterval = hasField("reviewInterval") ? safe(function() { return p.reviewInterval(); }) : null;
+        var reviewIntervalPayload = null;
+        if (reviewInterval) {
+          var steps = safe(function() { return reviewInterval.steps(); });
+          var unit = safe(function() { return reviewInterval.unit(); });
+          reviewIntervalPayload = {
+            steps: (typeof steps === "number" && isFinite(steps)) ? Math.trunc(steps) : null,
+            unit: unit ? String(unit) : null
+          };
+        }
+
         return {
           id: hasField("id") ? String(safe(function() { return p.id(); }) || "") : null,
           name: hasField("name") ? String(safe(function() { return p.name(); }) || "") : null,
           note: hasField("note") ? safe(function() { return p.note(); }) : null,
           status: hasField("status") ? String(safe(function() { return p.status(); }) || "") : null,
-          flagged: hasField("flagged") ? Boolean(safe(function() { return p.flagged(); })) : null
+          flagged: hasField("flagged") ? Boolean(safe(function() { return p.flagged(); })) : null,
+          lastReviewDate: hasField("lastReviewDate") && lastReviewDate ? lastReviewDate.toISOString() : null,
+          nextReviewDate: hasField("nextReviewDate") && nextReviewDate ? nextReviewDate.toISOString() : null,
+          reviewInterval: hasField("reviewInterval") ? reviewIntervalPayload : null
         };
       });
 

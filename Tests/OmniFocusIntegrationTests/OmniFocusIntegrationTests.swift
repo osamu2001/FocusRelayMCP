@@ -69,6 +69,23 @@ func bridgeTaskCountsLive() throws {
 }
 
 @Test
+func bridgeInboxViewCountsMatchListTasksLive() throws {
+    let env = ProcessInfo.processInfo.environment
+    guard env["FOCUS_RELAY_BRIDGE_TESTS"] == "1" else {
+        return
+    }
+
+    let client = BridgeClient()
+    let views = ["remaining", "available", "everything"]
+    for view in views {
+        let filter = TaskFilter(inboxView: view, inboxOnly: true, includeTotalCount: true)
+        let counts = try client.getTaskCounts(filter: filter)
+        let page = try client.listTasks(filter: filter, page: PageRequest(limit: 50), fields: ["id"])
+        #expect(counts.total == (page.totalCount ?? -1))
+    }
+}
+
+@Test
 func bridgeProjectCountsLive() throws {
     let env = ProcessInfo.processInfo.environment
     guard env["FOCUS_RELAY_BRIDGE_TESTS"] == "1" else {
@@ -82,6 +99,28 @@ func bridgeProjectCountsLive() throws {
 }
 
 @Test
+func bridgeListTasksRespectsProjectViewLive() throws {
+    let env = ProcessInfo.processInfo.environment
+    guard env["FOCUS_RELAY_BRIDGE_TESTS"] == "1" else {
+        return
+    }
+
+    guard let onHoldProjectID = env["FOCUS_RELAY_ONHOLD_PROJECT_ID"], !onHoldProjectID.isEmpty else {
+        return
+    }
+
+    let client = BridgeClient()
+    let filter = TaskFilter(completed: false, availableOnly: false, project: onHoldProjectID, projectView: "onHold")
+    let page = PageRequest(limit: 5)
+    let result = try client.listTasks(filter: filter, page: page, fields: ["id", "name"])
+    #expect(result.items.count >= 0)
+
+    let activeFilter = TaskFilter(completed: false, availableOnly: false, project: onHoldProjectID, projectView: "active")
+    let activeResult = try client.listTasks(filter: activeFilter, page: page, fields: ["id", "name"])
+    #expect(activeResult.items.isEmpty)
+}
+
+@Test
 func bridgeProjectsPagingLive() throws {
     let env = ProcessInfo.processInfo.environment
     guard env["FOCUS_RELAY_BRIDGE_TESTS"] == "1" else {
@@ -89,11 +128,33 @@ func bridgeProjectsPagingLive() throws {
     }
 
     let client = BridgeClient()
-    let first = try client.listProjects(page: PageRequest(limit: 2), statusFilter: "active", includeTaskCounts: false, fields: ["id", "name"])
+    let first = try client.listProjects(
+        page: PageRequest(limit: 2),
+        statusFilter: "active",
+        includeTaskCounts: false,
+        reviewDueBefore: nil,
+        reviewDueAfter: nil,
+        reviewPerspective: false,
+        completed: nil,
+        completedBefore: nil,
+        completedAfter: nil,
+        fields: ["id", "name"]
+    )
     #expect(first.items.count <= 2)
     #expect((first.totalCount ?? 0) >= first.items.count)
     if let cursor = first.nextCursor {
-        let second = try client.listProjects(page: PageRequest(limit: 2, cursor: cursor), statusFilter: "active", includeTaskCounts: false, fields: ["id", "name"])
+        let second = try client.listProjects(
+            page: PageRequest(limit: 2, cursor: cursor),
+            statusFilter: "active",
+            includeTaskCounts: false,
+            reviewDueBefore: nil,
+            reviewDueAfter: nil,
+            reviewPerspective: false,
+            completed: nil,
+            completedBefore: nil,
+            completedAfter: nil,
+            fields: ["id", "name"]
+        )
         #expect(second.items.count <= 2)
     }
 }

@@ -59,12 +59,25 @@ public struct ProjectTaskSummary: Codable, Sendable {
     }
 }
 
+public struct ReviewInterval: Codable, Sendable {
+    public let steps: Int?
+    public let unit: String?
+
+    public init(steps: Int? = nil, unit: String? = nil) {
+        self.steps = steps
+        self.unit = unit
+    }
+}
+
 public struct ProjectItem: Codable, Sendable {
     public let id: String
     public let name: String
     public let note: String?
     public let status: String
     public let flagged: Bool
+    public let lastReviewDate: Date?
+    public let nextReviewDate: Date?
+    public let reviewInterval: ReviewInterval?
     public let availableTasks: Int?
     public let remainingTasks: Int?
     public let completedTasks: Int?
@@ -74,6 +87,7 @@ public struct ProjectItem: Codable, Sendable {
     public let nextTask: ProjectTaskSummary?
     public let containsSingletonActions: Bool?
     public let isStalled: Bool?
+    public let completionDate: Date?
 
     public init(
         id: String,
@@ -81,6 +95,9 @@ public struct ProjectItem: Codable, Sendable {
         note: String? = nil,
         status: String,
         flagged: Bool,
+        lastReviewDate: Date? = nil,
+        nextReviewDate: Date? = nil,
+        reviewInterval: ReviewInterval? = nil,
         availableTasks: Int? = nil,
         remainingTasks: Int? = nil,
         completedTasks: Int? = nil,
@@ -89,13 +106,17 @@ public struct ProjectItem: Codable, Sendable {
         hasChildren: Bool? = nil,
         nextTask: ProjectTaskSummary? = nil,
         containsSingletonActions: Bool? = nil,
-        isStalled: Bool? = nil
+        isStalled: Bool? = nil,
+        completionDate: Date? = nil
     ) {
         self.id = id
         self.name = name
         self.note = note
         self.status = status
         self.flagged = flagged
+        self.lastReviewDate = lastReviewDate
+        self.nextReviewDate = nextReviewDate
+        self.reviewInterval = reviewInterval
         self.availableTasks = availableTasks
         self.remainingTasks = remainingTasks
         self.completedTasks = completedTasks
@@ -105,6 +126,7 @@ public struct ProjectItem: Codable, Sendable {
         self.nextTask = nextTask
         self.containsSingletonActions = containsSingletonActions
         self.isStalled = isStalled
+        self.completionDate = completionDate
     }
 }
 
@@ -160,11 +182,13 @@ public struct ProjectCounts: Codable, Sendable {
 public struct Page<T: Codable & Sendable>: Codable, Sendable {
     public let items: [T]
     public let nextCursor: String?
+    public let returnedCount: Int
     public let totalCount: Int?
 
-    public init(items: [T], nextCursor: String? = nil, totalCount: Int? = nil) {
+    public init(items: [T], nextCursor: String? = nil, returnedCount: Int, totalCount: Int? = nil) {
         self.items = items
         self.nextCursor = nextCursor
+        self.returnedCount = returnedCount
         self.totalCount = totalCount
     }
 }
@@ -185,13 +209,31 @@ public struct TagFilter: Codable, Sendable {
 public struct ProjectFilter: Codable, Sendable {
     public var statusFilter: String?
     public var includeTaskCounts: Bool?
+    public var reviewDueBefore: Date?
+    public var reviewDueAfter: Date?
+    public var reviewPerspective: Bool?
+    public var completed: Bool?
+    public var completedBefore: Date?
+    public var completedAfter: Date?
 
     public init(
         statusFilter: String? = nil,
-        includeTaskCounts: Bool? = nil
+        includeTaskCounts: Bool? = nil,
+        reviewDueBefore: Date? = nil,
+        reviewDueAfter: Date? = nil,
+        reviewPerspective: Bool? = nil,
+        completed: Bool? = nil,
+        completedBefore: Date? = nil,
+        completedAfter: Date? = nil
     ) {
         self.statusFilter = statusFilter
         self.includeTaskCounts = includeTaskCounts
+        self.reviewDueBefore = reviewDueBefore
+        self.reviewDueAfter = reviewDueAfter
+        self.reviewPerspective = reviewPerspective
+        self.completed = completed
+        self.completedBefore = completedBefore
+        self.completedAfter = completedAfter
     }
 }
 
@@ -213,7 +255,7 @@ public struct TaskFilter: Codable, Sendable {
     public var projectView: String?
     public var maxEstimatedMinutes: Int?
     public var minEstimatedMinutes: Int?
-    public var staleThreshold: String?
+    public var includeTotalCount: Bool?
 
     public init(
         completed: Bool? = nil,
@@ -233,7 +275,7 @@ public struct TaskFilter: Codable, Sendable {
         projectView: String? = nil,
         maxEstimatedMinutes: Int? = nil,
         minEstimatedMinutes: Int? = nil,
-        staleThreshold: String? = nil
+        includeTotalCount: Bool? = nil
     ) {
         self.completed = completed
         self.flagged = flagged
@@ -248,29 +290,9 @@ public struct TaskFilter: Codable, Sendable {
         self.projectView = projectView
         self.maxEstimatedMinutes = maxEstimatedMinutes
         self.minEstimatedMinutes = minEstimatedMinutes
-        self.staleThreshold = staleThreshold
-
-        // staleThreshold is mutually exclusive with deferBefore - calculate deferBefore if staleThreshold is set
-        if let threshold = staleThreshold {
-            let days: Int
-            switch threshold {
-            case "7days": days = 7
-            case "30days": days = 30
-            case "90days": days = 90
-            case "180days": days = 180
-            case "270days": days = 270
-            case "365days": days = 365
-            default: days = 30
-            }
-            let calendar = Calendar.current
-            let now = Date()
-            self.deferBefore = calendar.date(byAdding: .day, value: -days, to: now)
-            self.deferAfter = nil
-        } else {
-            self.deferBefore = deferBefore
-            self.deferAfter = deferAfter
-        }
-
+        self.includeTotalCount = includeTotalCount
+        self.deferBefore = deferBefore
+        self.deferAfter = deferAfter
         self.completedBefore = completedBefore
         self.completedAfter = completedAfter
     }
@@ -289,7 +311,18 @@ public struct PageRequest: Codable, Sendable {
 public protocol OmniFocusService: Sendable {
     func listTasks(filter: TaskFilter, page: PageRequest, fields: [String]?) async throws -> Page<TaskItem>
     func getTask(id: String, fields: [String]?) async throws -> TaskItem
-    func listProjects(page: PageRequest, statusFilter: String?, includeTaskCounts: Bool, fields: [String]?) async throws -> Page<ProjectItem>
+    func listProjects(
+        page: PageRequest,
+        statusFilter: String?,
+        includeTaskCounts: Bool,
+        reviewDueBefore: Date?,
+        reviewDueAfter: Date?,
+        reviewPerspective: Bool,
+        completed: Bool?,
+        completedBefore: Date?,
+        completedAfter: Date?,
+        fields: [String]?
+    ) async throws -> Page<ProjectItem>
     func listTags(page: PageRequest, statusFilter: String?, includeTaskCounts: Bool) async throws -> Page<TagItem>
     func getTaskCounts(filter: TaskFilter) async throws -> TaskCounts
     func getProjectCounts(filter: TaskFilter) async throws -> ProjectCounts

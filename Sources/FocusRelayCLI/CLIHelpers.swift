@@ -1,0 +1,131 @@
+import ArgumentParser
+import Foundation
+import OmniFocusCore
+
+enum FieldList {
+    static func parse(_ raw: String?) -> [String] {
+        guard let raw, !raw.isEmpty else { return [] }
+        return raw
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
+}
+
+enum ISO8601DateParser {
+    static func parseOptional(_ raw: String?, argumentName: String) throws -> Date? {
+        guard let raw, !raw.isEmpty else { return nil }
+        return try parse(raw, argumentName: argumentName)
+    }
+
+    static func parse(_ raw: String, argumentName: String) throws -> Date {
+        if let date = parseFractional(raw) ?? parseStandard(raw) {
+            return date
+        }
+        throw ValidationError("Invalid date for \(argumentName): \(raw). Expected ISO8601 like 2026-02-04T12:00:00Z.")
+    }
+
+    private static func parseStandard(_ raw: String) -> Date? {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.date(from: raw)
+    }
+
+    private static func parseFractional(_ raw: String) -> Date? {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.date(from: raw)
+    }
+}
+
+struct PageOptions: ParsableArguments {
+    @Option(help: "Page size limit.")
+    var limit: Int? = nil
+
+    @Option(help: "Cursor for pagination.")
+    var cursor: String? = nil
+
+    func makePageRequest(defaultLimit: Int) -> PageRequest {
+        PageRequest(limit: limit ?? defaultLimit, cursor: cursor)
+    }
+}
+
+struct TaskFilterOptions: ParsableArguments {
+    @Option(help: "Filter by completion status (true/false).")
+    var completed: Bool? = nil
+
+    @Option(help: "Filter flagged tasks (true/false).")
+    var flagged: Bool? = nil
+
+    @Option(name: .customLong("available-only"), help: "Only show available tasks (true/false).")
+    var availableOnly: Bool? = nil
+
+    @Option(name: .customLong("inbox-view"), help: "Inbox view: available, remaining, or everything.")
+    var inboxView: String? = nil
+
+    @Option(help: "Filter by project ID or name.")
+    var project: String? = nil
+
+    @Option(help: "Comma-separated tag IDs or names.")
+    var tags: String? = nil
+
+    @Option(name: .customLong("due-before"), help: "ISO8601 datetime. Tasks due before this time.")
+    var dueBefore: String? = nil
+
+    @Option(name: .customLong("due-after"), help: "ISO8601 datetime. Tasks due after this time.")
+    var dueAfter: String? = nil
+
+    @Option(name: .customLong("defer-before"), help: "ISO8601 datetime. Tasks deferred until before this time.")
+    var deferBefore: String? = nil
+
+    @Option(name: .customLong("defer-after"), help: "ISO8601 datetime. Tasks deferred until after this time.")
+    var deferAfter: String? = nil
+
+    @Option(name: .customLong("completed-before"), help: "ISO8601 datetime. Tasks completed before this time.")
+    var completedBefore: String? = nil
+
+    @Option(name: .customLong("completed-after"), help: "ISO8601 datetime. Tasks completed after this time.")
+    var completedAfter: String? = nil
+
+    @Option(help: "Search tasks by name or note content.")
+    var search: String? = nil
+
+    @Option(name: .customLong("inbox-only"), help: "Only show inbox tasks (true/false).")
+    var inboxOnly: Bool? = nil
+
+    @Option(name: .customLong("project-view"), help: "Project view filter: active, onHold, dropped, done, etc.")
+    var projectView: String? = nil
+
+    @Option(name: .customLong("max-estimated-minutes"), help: "Maximum estimated minutes.")
+    var maxEstimatedMinutes: Int? = nil
+
+    @Option(name: .customLong("min-estimated-minutes"), help: "Minimum estimated minutes.")
+    var minEstimatedMinutes: Int? = nil
+
+    @Flag(name: .customLong("include-total-count"), help: "Include total count of all matching tasks.")
+    var includeTotalCount: Bool = false
+
+    func makeTaskFilter() throws -> TaskFilter {
+        let tagList = FieldList.parse(tags)
+        return TaskFilter(
+            completed: completed,
+            flagged: flagged,
+            availableOnly: availableOnly,
+            inboxView: inboxView,
+            project: project,
+            tags: tagList.isEmpty ? nil : tagList,
+            dueBefore: try ISO8601DateParser.parseOptional(dueBefore, argumentName: "--due-before"),
+            dueAfter: try ISO8601DateParser.parseOptional(dueAfter, argumentName: "--due-after"),
+            deferBefore: try ISO8601DateParser.parseOptional(deferBefore, argumentName: "--defer-before"),
+            deferAfter: try ISO8601DateParser.parseOptional(deferAfter, argumentName: "--defer-after"),
+            completedBefore: try ISO8601DateParser.parseOptional(completedBefore, argumentName: "--completed-before"),
+            completedAfter: try ISO8601DateParser.parseOptional(completedAfter, argumentName: "--completed-after"),
+            search: search,
+            inboxOnly: inboxOnly,
+            projectView: projectView,
+            maxEstimatedMinutes: maxEstimatedMinutes,
+            minEstimatedMinutes: minEstimatedMinutes,
+            includeTotalCount: includeTotalCount
+        )
+    }
+}
