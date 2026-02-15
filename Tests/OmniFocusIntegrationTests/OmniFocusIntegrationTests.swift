@@ -176,6 +176,27 @@ func bridgeTagsPagingLive() throws {
     }
 }
 
+@Test
+func listCompletedTasksLive() async throws {
+    let env = ProcessInfo.processInfo.environment
+    guard env["FOCUS_RELAY_LIVE_TESTS"] == "1" else {
+        return
+    }
+
+    let service = OmniAutomationService()
+    let filter = TaskFilter(completed: true, inboxOnly: false)
+    let page = PageRequest(limit: 10)
+    let result = try await service.listTasks(filter: filter, page: page, fields: ["id", "name", "completed", "completionDate"])
+
+    #expect(result.items.count <= 10)
+    #expect((result.totalCount ?? 0) >= result.items.count)
+
+    for item in result.items {
+        #expect(item.completed == true)
+        #expect(item.completionDate != nil)
+    }
+}
+
 // MARK: - Status Edge Case Tests
 
 @Test
