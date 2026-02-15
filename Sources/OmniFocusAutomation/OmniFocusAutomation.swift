@@ -55,17 +55,13 @@ public final class OmniAutomationService: OmniFocusService {
             effectiveFilter.completed = false
         }
 
-        guard effectiveFilter.inboxOnly == true else {
-            throw AutomationError.executionFailed("Only inboxOnly is supported for listTasks in v0.1")
-        }
-
         let request = ListTasksRequest(filter: effectiveFilter, page: page, fields: fields)
         let requestData = try JSONEncoder().encode(request)
         guard let requestJSON = String(data: requestData, encoding: .utf8) else {
             throw AutomationError.executionFailed("Failed to encode request JSON")
         }
 
-        let script = listInboxTasksScript(requestJSON: requestJSON)
+        let script = listTasksScript(requestJSON: requestJSON)
         let output = try runner.runJavaScript(script)
         let data = Data(output.utf8)
         let payloadPage = try decoder.decode(Page<TaskItemPayload>.self, from: data)
@@ -80,6 +76,7 @@ public final class OmniAutomationService: OmniFocusService {
                 tagNames: payload.tagNames ?? [],
                 dueDate: payload.dueDate,
                 deferDate: payload.deferDate,
+                completionDate: payload.completionDate,
                 completed: payload.completed ?? false,
                 flagged: payload.flagged ?? false,
                 estimatedMinutes: payload.estimatedMinutes,
@@ -238,7 +235,7 @@ public struct InboxProbeAlt: Codable, Sendable {
     public let flattenedFilterMs: Int
 }
 
-private func listInboxTasksScript(requestJSON: String) -> String {
+private func listTasksScript(requestJSON: String) -> String {
     return """
     (function() {
       var request = \(requestJSON);
@@ -257,13 +254,50 @@ private func listInboxTasksScript(requestJSON: String) -> String {
         try { return fn(); } catch (e) { return null; }
       }
 
+      function parseFilterDate(dateString) {
+        if (!dateString || typeof dateString !== "string") { return null; }
+        var parsed = new Date(dateString);
+        if (isNaN(parsed.getTime())) { return null; }
+        return parsed;
+      }
+
+      function getTaskDateTimestamp(task, dateGetter) {
+        var date = safe(function() { return dateGetter(task); });
+        if (!date) { return null; }
+        if (typeof date.getTime !== "function") { return null; }
+        var ts = date.getTime();
+        if (isNaN(ts)) { return null; }
+        return ts;
+      }
+
       var app = Application('OmniFocus');
       var doc = app.defaultDocument();
-      var tasks = doc.inboxTasks();
-      var completedFilter = null;
-      if (request.filter && typeof request.filter.completed === "boolean") {
-        completedFilter = request.filter.completed;
+
+      var tasks = [];
+      var useInbox = (request.filter && request.filter.inboxOnly === true);
+      if (useInbox) {
+        tasks = doc.inboxTasks();
+      } else {
+        tasks = doc.flattenedTasks();
       }
+
+      var filter = request.filter || {};
+      var projectFilter = (typeof filter.project === "string" && filter.project.length > 0) ? filter.project : null;
+      if (projectFilter !== null) {
+        tasks = tasks.filter(function(t) {
+          var project = safe(function() { return t.containingProject(); });
+          if (!project) { return false; }
+          var projectID = String(safe(function() { return project.id(); }) || "");
+          var projectName = String(safe(function() { return project.name(); }) || "");
+          return projectID === projectFilter || projectName === projectFilter;
+        });
+      }
+
+      var completedFilter = null;
+      if (typeof filter.completed === "boolean") {
+        completedFilter = filter.completed;
+      }
+
       if (completedFilter !== null) {
         tasks = tasks.filter(function(t) {
           return Boolean(safe(function() { return t.completed(); })) === completedFilter;
@@ -276,30 +310,44 @@ private func listInboxTasksScript(requestJSON: String) -> String {
         if (completedFilter === null) {
           if (Boolean(safe(function() { return t.completed(); }))) { return false; }
         }
+        var parent = safe(function() { return t.parent(); });
+        if (parent) {
+          if (safe(function() { return parent.dropDate(); })) { return false; }
+          if (Boolean(safe(function() { return parent.completed(); }))) { return false; }
+        }
         return true;
       });
-      var projectFilter = null;
-      if (request.filter && typeof request.filter.project === "string" && request.filter.project.length > 0) {
-        projectFilter = request.filter.project;
-      }
-      if (projectFilter !== null) {
-        tasks = tasks.filter(function(t) {
-          var project = safe(function() { return t.containingProject(); });
-          if (!project) { return false; }
-          var projectID = String(safe(function() { return project.id(); }) || "");
-          var projectName = String(safe(function() { return project.name(); }) || "");
-          return projectID === projectFilter || projectName === projectFilter;
-        });
-      }
+
       var availableOnly = null;
-      if (request.filter && typeof request.filter.availableOnly === "boolean") {
-        availableOnly = request.filter.availableOnly;
+      if (typeof filter.availableOnly === "boolean") {
+        availableOnly = filter.availableOnly;
       }
       if (availableOnly === true) {
         tasks = tasks.filter(function(t) {
           return Boolean(safe(function() { return t.isAvailable(); }));
         });
       }
+
+      var completedBefore = filter.completedBefore ? parseFilterDate(filter.completedBefore) : null;
+      var completedAfter = filter.completedAfter ? parseFilterDate(filter.completedAfter) : null;
+      if (completedBefore || completedAfter) {
+        tasks = tasks.filter(function(t) {
+          var completed = getTaskDateTimestamp(t, function(task) { return task.completionDate(); });
+          if (completed === null) { return false; }
+          if (completedBefore && completed > completedBefore.getTime()) { return false; }
+          if (completedAfter && completed < completedAfter.getTime()) { return false; }
+          return true;
+        });
+      }
+
+      if (completedFilter === true || completedBefore || completedAfter) {
+        tasks.sort(function(a, b) {
+          var dateA = getTaskDateTimestamp(a, function(t) { return t.completionDate(); }) || 0;
+          var dateB = getTaskDateTimestamp(b, function(t) { return t.completionDate(); }) || 0;
+          return dateB - dateA;
+        });
+      }
+
       var total = tasks.length;
       var slice = tasks.slice(offset, offset + limit);
 
@@ -308,6 +356,7 @@ private func listInboxTasksScript(requestJSON: String) -> String {
         var tags = (hasField("tagIDs") || hasField("tagNames")) ? (safe(function() { return t.tags(); }) || []) : [];
         var dueDate = hasField("dueDate") ? safe(function() { return t.dueDate(); }) : null;
         var deferDate = hasField("deferDate") ? safe(function() { return t.deferDate(); }) : null;
+        var completionDate = hasField("completionDate") ? safe(function() { return t.completionDate(); }) : null;
 
         return {
           id: hasField("id") ? String(safe(function() { return t.id(); }) || "") : null,
@@ -319,6 +368,7 @@ private func listInboxTasksScript(requestJSON: String) -> String {
           tagNames: hasField("tagNames") ? tags.map(function(tag) { return String(safe(function() { return tag.name(); }) || ""); }) : null,
           dueDate: hasField("dueDate") && dueDate ? dueDate.toISOString() : null,
           deferDate: hasField("deferDate") && deferDate ? deferDate.toISOString() : null,
+          completionDate: hasField("completionDate") && completionDate ? completionDate.toISOString() : null,
           completed: hasField("completed") ? Boolean(safe(function() { return t.completed(); })) : null,
           flagged: hasField("flagged") ? Boolean(safe(function() { return t.flagged(); })) : null,
           estimatedMinutes: hasField("estimatedMinutes") ? safe(function() { return t.estimatedMinutes(); }) : null,
@@ -327,7 +377,7 @@ private func listInboxTasksScript(requestJSON: String) -> String {
       });
 
       var nextCursor = (offset + limit < total) ? String(offset + limit) : null;
-      return JSON.stringify({ items: items, nextCursor: nextCursor });
+      return JSON.stringify({ items: items, nextCursor: nextCursor, returnedCount: items.length, totalCount: total });
     })();
     """
 }
