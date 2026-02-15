@@ -1,4 +1,44 @@
 (() => {
+  /*
+   * OmniFocus API Contract
+   * ======================
+   * 
+   * This file interacts with OmniFocus's JavaScript API. To ensure consistency
+   * and correctness, we MUST use OmniFocus's native status properties instead
+   * of manual heuristics.
+   * 
+   * TASK STATUS (Task.taskStatus)
+   * -----------------------------
+   * - Task.Status.Available    - Task is actionable now
+   * - Task.Status.Next         - Next action in a sequential project
+   * - Task.Status.DueSoon      - Task is due within the next 24 hours
+   * - Task.Status.Overdue      - Task's due date has passed
+   * - Task.Status.Blocked      - Task is blocked by incomplete prerequisites
+   * - Task.Status.Completed    - Task is marked complete
+   * - Task.Status.Dropped      - Task has been dropped
+   * 
+   * PROJECT STATUS (Project.status)
+   * -------------------------------
+   * - Project.Status.Active    - Project is active and actionable
+   * - Project.Status.OnHold    - Project is on hold (tasks not available)
+   * - Project.Status.Dropped   - Project has been dropped
+   * - Project.Status.Done      - Project is completed
+   * 
+   * KEY PRINCIPLES
+   * --------------
+   * 1. ALWAYS use task.taskStatus for availability checks
+   * 2. ALWAYS check project.status before considering a task available
+   * 3. NEVER manually check defer dates - OmniFocus handles this via taskStatus
+   * 4. ALWAYS respect parent task status (completed/dropped parents block children)
+   * 
+   * Status Helper Functions (defined below):
+   * - taskStatus(task)          - Get task status safely
+   * - isRemainingStatus(task)   - Check if task is not completed/dropped
+   * - isAvailableStatus(task)   - Check if task is actionable (Available/Next/DueSoon/Overdue)
+   * - projectMatchesView()      - Check if project matches view filter
+   * - isTaskAvailable()         - Full availability check including project/parent status
+   */
+  
   const lib = new PlugIn.Library(new Version("1.0"));
 
   lib.handleRequest = function(requestId, basePath) {
@@ -84,15 +124,45 @@
       };
     }
 
+    // ============================================================
+    // STATUS MODULE - Single Source of Truth for OmniFocus Status
+    // ============================================================
+    // 
+    // These functions provide the ONLY way to check task and project
+    // status. Do NOT use manual checks elsewhere in the codebase.
+    // 
+    // Task Status Values (Task.Status.*):
+    //   Available, Next, DueSoon, Overdue, Blocked, Completed, Dropped
+    //
+    // Project Status Values (Project.Status.*):
+    //   Active, OnHold, Dropped, Done
+    // ============================================================
+
+    /**
+     * Get the native task status from OmniFocus
+     * @param {Task} task - OmniFocus task object
+     * @returns {string|null} Task status or null if unavailable
+     */
     function taskStatus(task) {
       return safe(() => task.taskStatus);
     }
 
+    /**
+     * Check if task is remaining (not completed or dropped)
+     * @param {Task} task - OmniFocus task object  
+     * @returns {boolean} True if task is remaining
+     */
     function isRemainingStatus(task) {
       const st = taskStatus(task);
       return st !== Task.Status.Completed && st !== Task.Status.Dropped;
     }
 
+    /**
+     * Check if task status indicates availability
+     * Note: This checks ONLY the task status, not project/parent status
+     * @param {Task} task - OmniFocus task object
+     * @returns {boolean} True if task has an available status
+     */
     function isAvailableStatus(task) {
       const st = taskStatus(task);
       return st === Task.Status.Available ||
@@ -101,6 +171,13 @@
         st === Task.Status.Overdue;
     }
 
+    /**
+     * Check if a project matches the requested view filter
+     * @param {Project} project - OmniFocus project object
+     * @param {string} view - View filter: "active", "onHold", "dropped", "done", "everything", "all"
+     * @param {boolean} allowOnHoldInEverything - Whether to include on-hold projects in "everything" view
+     * @returns {boolean} True if project matches the view
+     */
     function projectMatchesView(project, view, allowOnHoldInEverything) {
       if (!project) { return false; }
       if (!view || view === "all") { return true; }
@@ -114,6 +191,7 @@
       if (status === Project.Status.Dropped) { return normalizedView === "dropped"; }
       if (status === Project.Status.Done) { return normalizedView === "done" || normalizedView === "completed"; }
 
+      // Fallback string matching for safety
       const statusStr = String(status);
       if (statusStr.includes("OnHold")) { return allowOnHold || normalizedView === "onhold" || normalizedView === "on_hold"; }
       if (statusStr.includes("Dropped")) { return normalizedView === "dropped"; }
@@ -122,7 +200,20 @@
       return normalizedView === "active";
     }
 
+    /**
+     * Check if a task is truly available (respects project and parent status)
+     * This is the PRIMARY function for checking task availability.
+     * 
+     * A task is available ONLY if:
+     * 1. Its project is active (not onHold/dropped/done)
+     * 2. Its parent task (if any) is not completed/dropped
+     * 3. Its own status is Available, Next, DueSoon, or Overdue
+     * 
+     * @param {Task} task - OmniFocus task object
+     * @returns {boolean} True if task is available for action
+     */
     function isTaskAvailable(task) {
+      // Check project status first
       const project = safe(() => task.containingProject);
       if (project) {
         const status = safe(() => project.status);
@@ -130,24 +221,32 @@
         if (status === Project.Status.Dropped) { return false; }
         if (status === Project.Status.Done) { return false; }
 
+        // Fallback string matching for safety
         const statusStr = String(status);
         if (statusStr.includes("OnHold")) { return false; }
         if (statusStr.includes("Dropped")) { return false; }
         if (statusStr.includes("Done")) { return false; }
 
+        // Additional safety checks
         if (Boolean(safe(() => project.completed))) { return false; }
         if (safe(() => project.dropDate)) { return false; }
         if (Boolean(safe(() => project.onHold))) { return false; }
       }
 
+      // Check parent task status
       const parent = safe(() => task.parent);
       if (parent) {
         if (Boolean(safe(() => parent.completed))) { return false; }
         if (safe(() => parent.dropDate)) { return false; }
       }
 
+      // Finally check the task's own status
       return isAvailableStatus(task);
     }
+
+    // ============================================================
+    // END STATUS MODULE
+    // ============================================================
 
     // Date parsing helper - available to all operations
     function parseFilterDate(dateString, warnings) {

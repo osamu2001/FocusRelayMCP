@@ -5,6 +5,33 @@
 - Add or update Swift tests when new functionality is added.
 - Run `swift test` after changes.
 
+## Code Review Checklist
+
+When reviewing changes to BridgeLibrary.js or status-related logic, ensure:
+
+### OmniFocus Native Status Usage
+- [ ] **Task status checks use `task.taskStatus`** - Never manually check `blocked`, `deferDate`, or other heuristics
+- [ ] **Project status checks use `project.status`** - Check against `Project.Status.Active/OnHold/Dropped/Done`
+- [ ] **Parent task status is respected** - Children of completed/dropped parents should not be available
+- [ ] **Status helper functions are used** - Use `isTaskAvailable()`, `isAvailableStatus()`, `isRemainingStatus()` from the STATUS MODULE
+
+### What NOT to Do
+- ❌ Manually check `task.blocked` to determine availability
+- ❌ Manually compare `task.effectiveDeferDate` against current time
+- ❌ Check `project.completed` or `project.onHold` booleans without also checking `project.status`
+- ❌ Assume a task is available just because it has no defer date
+
+### What TO Do
+- ✅ Use `task.taskStatus` which returns OmniFocus's calculated status
+- ✅ Use `isTaskAvailable(task)` which checks project, parent, and task status
+- ✅ Use `isAvailableStatus(task)` for status-only checks
+- ✅ Use `projectMatchesView()` for project view filtering
+
+### Testing Requirements
+- [ ] New status logic has integration tests (see `OmniFocusIntegrationTests.swift`)
+- [ ] Edge cases tested: onHold projects, dropped projects, completed parent tasks
+- [ ] Status consistency verified: `getTaskCounts` matches `listTasks` results
+
 ## Plugin Installation
 
 When the FocusRelayBridge plugin needs to be updated in OmniFocus, **always use the install script**:

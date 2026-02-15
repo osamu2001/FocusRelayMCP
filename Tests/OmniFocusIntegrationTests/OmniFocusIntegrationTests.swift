@@ -175,3 +175,164 @@ func bridgeTagsPagingLive() throws {
         #expect(second.items.count <= 2)
     }
 }
+
+// MARK: - Status Edge Case Tests
+
+@Test
+func bridgeTasksInOnHoldProjectNotAvailableLive() throws {
+    let env = ProcessInfo.processInfo.environment
+    guard env["FOCUS_RELAY_BRIDGE_TESTS"] == "1" else {
+        return
+    }
+
+    guard let onHoldProjectID = env["FOCUS_RELAY_ONHOLD_PROJECT_ID"], !onHoldProjectID.isEmpty else {
+        return
+    }
+
+    let client = BridgeClient()
+    // Query tasks in on-hold project with availableOnly=true
+    let filter = TaskFilter(
+        completed: false,
+        availableOnly: true,
+        project: onHoldProjectID,
+        projectView: "onHold"
+    )
+    let page = PageRequest(limit: 50)
+    let result = try client.listTasks(filter: filter, page: page, fields: ["id", "name", "available"])
+    
+    // No tasks in an on-hold project should be available
+    #expect(result.items.isEmpty, "Tasks in on-hold projects should not be available")
+}
+
+@Test
+func bridgeTasksInDroppedProjectNotAvailableLive() throws {
+    let env = ProcessInfo.processInfo.environment
+    guard env["FOCUS_RELAY_BRIDGE_TESTS"] == "1" else {
+        return
+    }
+
+    guard let droppedProjectID = env["FOCUS_RELAY_DROPPED_PROJECT_ID"], !droppedProjectID.isEmpty else {
+        return
+    }
+
+    let client = BridgeClient()
+    // Query tasks in dropped project with availableOnly=true
+    let filter = TaskFilter(
+        completed: false,
+        availableOnly: true,
+        project: droppedProjectID,
+        projectView: "dropped"
+    )
+    let page = PageRequest(limit: 50)
+    let result = try client.listTasks(filter: filter, page: page, fields: ["id", "name", "available"])
+    
+    // No tasks in a dropped project should be available
+    #expect(result.items.isEmpty, "Tasks in dropped projects should not be available")
+}
+
+@Test
+func bridgeTasksInDoneProjectNotAvailableLive() throws {
+    let env = ProcessInfo.processInfo.environment
+    guard env["FOCUS_RELAY_BRIDGE_TESTS"] == "1" else {
+        return
+    }
+
+    guard let doneProjectID = env["FOCUS_RELAY_DONE_PROJECT_ID"], !doneProjectID.isEmpty else {
+        return
+    }
+
+    let client = BridgeClient()
+    // Query tasks in done project with availableOnly=true
+    let filter = TaskFilter(
+        completed: false,
+        availableOnly: true,
+        project: doneProjectID,
+        projectView: "done"
+    )
+    let page = PageRequest(limit: 50)
+    let result = try client.listTasks(filter: filter, page: page, fields: ["id", "name", "available"])
+    
+    // No tasks in a done project should be available
+    #expect(result.items.isEmpty, "Tasks in done projects should not be available")
+}
+
+@Test
+func bridgeChildTasksWithCompletedParentNotAvailableLive() throws {
+    let env = ProcessInfo.processInfo.environment
+    guard env["FOCUS_RELAY_BRIDGE_TESTS"] == "1" else {
+        return
+    }
+
+    guard let completedParentTaskID = env["FOCUS_RELAY_COMPLETED_PARENT_TASK_ID"], !completedParentTaskID.isEmpty else {
+        return
+    }
+
+    let client = BridgeClient()
+    // Get the parent task first
+    let parentTask = try client.getTask(id: completedParentTaskID, fields: ["id", "name", "completed"])
+    #expect(parentTask.completed == true, "Parent task should be completed for this test")
+    
+    // Query available tasks - children of completed parents should not appear
+    let filter = TaskFilter(availableOnly: true)
+    let page = PageRequest(limit: 100)
+    let result = try client.listTasks(filter: filter, page: page, fields: ["id", "name", "available"])
+    
+    // Ensure no child tasks of the completed parent are in available results
+    // This is a heuristic - we can't easily query children directly
+    // But we verify the filtering logic is working
+    let childTaskIds = env["FOCUS_RELAY_CHILD_TASK_IDS"]?.split(separator: ",").map(String.init) ?? []
+    for childId in childTaskIds {
+        let found = result.items.contains { $0.id == childId }
+        #expect(!found, "Child task \(childId) of completed parent should not be available")
+    }
+}
+
+@Test
+func bridgeTaskStatusValuesAreValidLive() throws {
+    let env = ProcessInfo.processInfo.environment
+    guard env["FOCUS_RELAY_BRIDGE_TESTS"] == "1" else {
+        return
+    }
+
+    let client = BridgeClient()
+    // Query a sample of tasks and verify status values
+    let filter = TaskFilter(completed: nil, inboxOnly: false)
+    let page = PageRequest(limit: 20)
+    let result = try client.listTasks(filter: filter, page: page, fields: ["id", "name", "taskStatus", "available", "completed"])
+    
+    // Verify that available tasks have valid status
+    for task in result.items {
+        if task.available == true {
+            // Available tasks should not be completed
+            #expect(task.completed != true, "Available task should not be completed: \(task.name ?? "unnamed")")
+        }
+    }
+}
+
+@Test
+func bridgeAvailableTasksCountConsistencyLive() throws {
+    let env = ProcessInfo.processInfo.environment
+    guard env["FOCUS_RELAY_BRIDGE_TESTS"] == "1" else {
+        return
+    }
+
+    let client = BridgeClient()
+    
+    // Get counts
+    let counts = try client.getTaskCounts(filter: TaskFilter(availableOnly: true))
+    
+    // Get actual tasks
+    let page = try client.listTasks(
+        filter: TaskFilter(availableOnly: true, includeTotalCount: true),
+        page: PageRequest(limit: 1000),
+        fields: ["id"]
+    )
+    
+    // The count should match the total returned
+    // Note: We compare against totalCount from the response, not items.count
+    // because items might be paginated
+    if let totalCount = page.totalCount {
+        #expect(counts.total == totalCount, 
+                "Available task count (\(counts.total)) should match listTasks total (\(totalCount))")
+    }
+}
