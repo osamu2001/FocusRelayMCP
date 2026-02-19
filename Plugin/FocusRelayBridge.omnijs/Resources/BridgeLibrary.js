@@ -329,7 +329,9 @@
             tasks = tasks.filter(t => isRemainingStatus(t));
           }
 
-          const availableOnly = (typeof filter.availableOnly === "boolean") ? filter.availableOnly : !isRemaining && !isEverything;
+          const availableOnly = (typeof filter.availableOnly === "boolean")
+            ? filter.availableOnly
+            : (filter.completed === true ? false : !isRemaining && !isEverything);
           if (availableOnly) {
             tasks = tasks.filter(t => isTaskAvailable(t));
           }
@@ -687,13 +689,11 @@
                 }
               }
               
-              item.taskCounts = {
-                available: available,
-                remaining: remaining,
-                completed: completed,
-                dropped: dropped,
-                total: flattenedTasks.length
-              };
+              item.availableTasks = available;
+              item.remainingTasks = remaining;
+              item.completedTasks = completed;
+              item.droppedTasks = dropped;
+              item.totalTasks = flattenedTasks.length;
 
             }
             
@@ -840,7 +840,9 @@
             tasks = tasks.filter(t => isRemainingStatus(t));
           }
 
-          const availableOnly = (typeof filter.availableOnly === "boolean") ? filter.availableOnly : !isRemaining && !isEverything;
+          const availableOnly = (typeof filter.availableOnly === "boolean")
+            ? filter.availableOnly
+            : (filter.completed === true ? false : !isRemaining && !isEverything);
           if (availableOnly) {
             tasks = tasks.filter(t => isTaskAvailable(t));
           }
@@ -867,6 +869,8 @@
 
           // Apply filters
           tasks = tasks.filter(t => {
+            const project = safe(() => t.containingProject);
+
             if (filterState.completed !== undefined) {
               const taskCompleted = Boolean(t.completed);
               if (taskCompleted !== filterState.completed) return false;
@@ -881,7 +885,6 @@
               if (!isTaskAvailable(t)) return false;
             }
             if (filterState.projectFilter) {
-              const project = safe(() => t.containingProject);
               if (!project) return false;
               const pid = String(safe(() => project.id.primaryKey) || "");
               const pname = String(safe(() => project.name) || "");
