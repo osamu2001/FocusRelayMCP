@@ -44,6 +44,12 @@ Stop clicking through endless task lists. Just ask:
 
 ## Installation
 
+**Quick Overview:** Regardless of which installation method you choose, you'll need to complete these steps:
+1. **Install the binary** (via Homebrew, manual download, or build from source)
+2. **Install the OmniFocus plugin** (Step 2 below)
+3. **Configure MCP** in your client (Step 3 below)  
+4. **Restart OmniFocus** (Step 4 below)
+
 ### Option A: Homebrew Installation (Recommended for macOS)
 
 If you have [Homebrew](https://brew.sh) installed, this is the easiest method:
@@ -56,7 +62,7 @@ brew tap deverman/focus-relay
 brew install focusrelay
 ```
 
-Then continue with **Step 3: Restart OmniFocus** below.
+Then continue with **Step 2: Install the OmniFocus Plugin** below.
 
 ### Option B: Manual Binary Installation
 
@@ -65,7 +71,8 @@ If you don't want to use Homebrew, download a pre-built binary:
 1. Download the latest release from the [Releases](../../releases) page
 2. Extract the binary to a location in your PATH (e.g., `~/bin/` or `/usr/local/bin/`)
 3. Download the plugin: `FocusRelayBridge.omnijs` from the same release
-4. Copy the plugin to your OmniFocus plugin folder (see Step 2 below)
+
+Then continue with **Step 2: Install the OmniFocus Plugin** below.
 
 ### Option C: Developer Installation (Build from Source)
 
@@ -84,6 +91,8 @@ swift build -c release
 ```
 
 The binary will be at `.build/release/focusrelay` (CLI + MCP server).
+
+Then continue with **Step 2: Install the OmniFocus Plugin** below.
 
 ### Step 2: Install the OmniFocus Plugin
 
