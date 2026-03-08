@@ -7,11 +7,18 @@ final class BridgeClient: @unchecked Sendable {
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
     private let staleInterval: TimeInterval
+    private let configuration: BridgeClientConfiguration
 
-    init(paths: IPCPaths = .default(), fileManager: FileManager = .default, staleInterval: TimeInterval = 600) {
+    init(
+        paths: IPCPaths = .default(),
+        fileManager: FileManager = .default,
+        staleInterval: TimeInterval = 600,
+        configuration: BridgeClientConfiguration = .fromEnvironment(ProcessInfo.processInfo.environment)
+    ) {
         self.paths = paths
         self.fileManager = fileManager
         self.staleInterval = staleInterval
+        self.configuration = configuration
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         self.encoder = encoder
@@ -314,31 +321,85 @@ final class BridgeClient: @unchecked Sendable {
 
     private func sendRequest<T: Decodable>(_ request: BridgeRequest, responseType: T.Type) throws -> BridgeResponse<T> {
         try ensureDirectories()
-        try writeRequest(request, requestId: request.requestId)
-        try triggerOmniFocus(requestId: request.requestId)
-
         let responseURL = paths.responsesURL.appendingPathComponent("\(request.requestId).json")
         let requestURL = paths.requestsURL.appendingPathComponent("\(request.requestId).json")
         let lockURL = paths.locksURL.appendingPathComponent("\(request.requestId).lock")
         do {
-            return try waitForResponse(at: responseURL, timeout: 10.0, responseType: responseType)
+            try writeRequest(request, requestId: request.requestId)
+            try triggerOmniFocus(requestId: request.requestId)
+            return try waitForResponse(
+                at: responseURL,
+                requestURL: requestURL,
+                lockURL: lockURL,
+                requestId: request.requestId,
+                timeout: configuration.responseTimeout,
+                responseType: responseType
+            )
         } catch {
-            removeIfExists(url: requestURL)
-            removeIfExists(url: lockURL)
+            if !isTimeoutError(error) {
+                removeIfExists(url: requestURL)
+                removeIfExists(url: lockURL)
+            }
             throw error
         }
     }
 
-    private func waitForResponse<T: Decodable>(at url: URL, timeout: TimeInterval, responseType: T.Type) throws -> BridgeResponse<T> {
+    private func waitForResponse<T: Decodable>(
+        at url: URL,
+        requestURL: URL,
+        lockURL: URL,
+        requestId: String,
+        timeout: TimeInterval,
+        responseType: T.Type
+    ) throws -> BridgeResponse<T> {
         let start = Date()
+        var lastReadError: Error?
+        var hasRedispatchedStrandedRequest = false
         while Date().timeIntervalSince(start) < timeout {
             if fileManager.fileExists(atPath: url.path) {
+                do {
+                    let data = try Data(contentsOf: url)
+                    return try decoder.decode(BridgeResponse<T>.self, from: data)
+                } catch {
+                    lastReadError = error
+                }
+            }
+
+            if !hasRedispatchedStrandedRequest,
+               shouldRedispatchStrandedRequest(
+                elapsed: Date().timeIntervalSince(start),
+                timeout: timeout,
+                requestURL: requestURL,
+                responseURL: url,
+                lockURL: lockURL
+               ) {
+                do {
+                    try triggerOmniFocus(requestId: requestId)
+                    hasRedispatchedStrandedRequest = true
+                } catch {
+                    lastReadError = error
+                }
+            }
+            Thread.sleep(forTimeInterval: configuration.responsePollInterval)
+        }
+
+        if fileManager.fileExists(atPath: url.path) {
+            do {
                 let data = try Data(contentsOf: url)
                 return try decoder.decode(BridgeResponse<T>.self, from: data)
+            } catch {
+                lastReadError = error
             }
-            Thread.sleep(forTimeInterval: 0.05)
         }
-        throw AutomationError.executionFailed("Bridge response timed out")
+
+        let requestExists = fileManager.fileExists(atPath: requestURL.path)
+        let responseExists = fileManager.fileExists(atPath: url.path)
+        let lockExists = fileManager.fileExists(atPath: lockURL.path)
+        let timeoutSeconds = String(format: "%.1f", timeout)
+        let lastReadDetail = lastReadError.map { String(describing: $0) } ?? "none"
+        throw AutomationError.executionFailed(
+            "Bridge response timed out after \(timeoutSeconds)s (requestId=\(requestId), requestExists=\(requestExists), responseExists=\(responseExists), lockExists=\(lockExists), lastReadError=\(lastReadDetail))"
+        )
     }
 
     private func cleanupStaleFiles() {
@@ -364,6 +425,55 @@ final class BridgeClient: @unchecked Sendable {
             try? fileManager.removeItem(at: url)
         }
     }
+
+    private func shouldRedispatchStrandedRequest(
+        elapsed: TimeInterval,
+        timeout: TimeInterval,
+        requestURL: URL,
+        responseURL: URL,
+        lockURL: URL
+    ) -> Bool {
+        guard elapsed >= strandedRedispatchDelay(timeout: timeout) else {
+            return false
+        }
+        return fileManager.fileExists(atPath: requestURL.path)
+            && !fileManager.fileExists(atPath: responseURL.path)
+            && !fileManager.fileExists(atPath: lockURL.path)
+    }
+
+    private func isTimeoutError(_ error: Error) -> Bool {
+        guard let automationError = error as? AutomationError else {
+            return false
+        }
+        switch automationError {
+        case .executionFailed(let message):
+            let lower = message.lowercased()
+            return lower.contains("timed out") || lower.contains("timeout")
+        case .scriptCreationFailed, .notImplemented:
+            return false
+        }
+    }
+}
+
+struct BridgeClientConfiguration: Equatable {
+    let responseTimeout: TimeInterval
+    let responsePollInterval: TimeInterval
+
+    static func fromEnvironment(_ environment: [String: String]) -> BridgeClientConfiguration {
+        let parsedTimeout = environment["FOCUS_RELAY_BRIDGE_RESPONSE_TIMEOUT_SECONDS"].flatMap(TimeInterval.init)
+        let timeout = (parsedTimeout ?? 0) > 0 ? parsedTimeout! : 45.0
+
+        let parsedPollInterval = environment["FOCUS_RELAY_BRIDGE_RESPONSE_POLL_MS"]
+            .flatMap(Double.init)
+            .map { $0 / 1000.0 }
+        let pollInterval = (parsedPollInterval ?? 0) > 0 ? parsedPollInterval! : 0.05
+
+        return BridgeClientConfiguration(responseTimeout: timeout, responsePollInterval: pollInterval)
+    }
+}
+
+func strandedRedispatchDelay(timeout: TimeInterval) -> TimeInterval {
+    min(2.0, max(0.5, timeout * 0.1))
 }
 
 private func bridgeScript(basePath: String, requestId: String) -> String {

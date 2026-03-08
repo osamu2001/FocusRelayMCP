@@ -20,7 +20,11 @@ struct FocusRelayCLI: AsyncParsableCommand {
             ProjectCounts.self,
             DebugInboxProbe.self,
             DebugInboxProbeAlt.self,
-            BridgeHealthCheck.self
+            BridgeHealthCheck.self,
+            BenchmarkTaskCounts.self,
+            BenchmarkListTasks.self,
+            BenchmarkProjectCounts.self,
+            BenchmarkGateCheck.self
         ]
     )
 }

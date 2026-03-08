@@ -4,6 +4,10 @@
 - Do not add `swift-testing` as a package dependency.
 - Add or update Swift tests when new functionality is added.
 - Run `swift test` after changes.
+- Production query paths must use only documented Omni Automation APIs.
+- If an Omni Automation property or collection is not documented on the official OmniFocus site, do not use it in core query logic.
+- When in doubt, prefer `flattenedTasks` plus `task.taskStatus` filtering and `flattenedProjects` plus `project.status` filtering.
+- Query-engine changes must follow `docs/omni-automation-contract.md`.
 
 ## Code Review Checklist
 

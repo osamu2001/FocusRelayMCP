@@ -88,6 +88,111 @@ func bridgeTaskCountsLive() throws {
 }
 
 @Test
+func bridgeAndJXATaskCountsParityLive() async throws {
+    let env = ProcessInfo.processInfo.environment
+    guard env["FOCUS_RELAY_PARITY_TESTS"] == "1" else {
+        return
+    }
+
+    let bridge = OmniFocusBridgeService()
+    let automation = OmniAutomationService()
+    let scenarios: [(String, TaskFilter)] = [
+        ("default", TaskFilter()),
+        ("inboxOnly", TaskFilter(inboxOnly: true)),
+        ("availableOnly", TaskFilter(availableOnly: true)),
+        ("completedAfterEpoch", TaskFilter(completed: true, completedAfter: Date(timeIntervalSince1970: 0))),
+        ("flaggedOnly", TaskFilter(flagged: true))
+    ]
+
+    for (name, filter) in scenarios {
+        let bridgeCounts = try await retryTaskCounts(service: bridge, filter: filter)
+        let jxaCounts = try await retryTaskCounts(service: automation, filter: filter)
+        #expect(
+            bridgeCounts.total == jxaCounts.total &&
+                bridgeCounts.completed == jxaCounts.completed &&
+                bridgeCounts.available == jxaCounts.available &&
+                bridgeCounts.flagged == jxaCounts.flagged,
+            "Task counts mismatch for scenario=\(name). bridge=\(bridgeCounts) jxa=\(jxaCounts)"
+        )
+    }
+}
+
+@Test
+func bridgeAndJXAListTasksParityLive() async throws {
+    let env = ProcessInfo.processInfo.environment
+    guard env["FOCUS_RELAY_PARITY_TESTS"] == "1" else {
+        return
+    }
+
+    let bridge = OmniFocusBridgeService()
+    let automation = OmniAutomationService()
+    let page = PageRequest(limit: 50)
+    let fields = ["id", "name", "completed", "available", "completionDate"]
+
+    var scenarios: [(String, TaskFilter)] = [
+        ("default", TaskFilter(includeTotalCount: true)),
+        ("inboxOnly", TaskFilter(inboxOnly: true, includeTotalCount: true)),
+        ("availableOnly", TaskFilter(availableOnly: true, includeTotalCount: true)),
+        ("completedAfterEpoch", TaskFilter(completed: true, completedAfter: Date(timeIntervalSince1970: 0), includeTotalCount: true))
+    ]
+
+    let activeProjects = try await bridge.listProjects(
+        page: PageRequest(limit: 10),
+        statusFilter: "active",
+        includeTaskCounts: false,
+        reviewDueBefore: nil,
+        reviewDueAfter: nil,
+        reviewPerspective: false,
+        completed: nil,
+        completedBefore: nil,
+        completedAfter: nil,
+        fields: ["id", "name"]
+    )
+    if let projectID = activeProjects.items.first?.id, !projectID.isEmpty {
+        scenarios.append(("projectScopedSimple", TaskFilter(project: projectID, includeTotalCount: true)))
+    }
+
+    for (name, filter) in scenarios {
+        let bridgePage = try await retryListTasks(service: bridge, filter: filter, page: page, fields: fields)
+        let jxaPage = try await retryListTasks(service: automation, filter: filter, page: page, fields: fields)
+
+        #expect((bridgePage.totalCount ?? -1) == (jxaPage.totalCount ?? -1), "totalCount mismatch on scenario=\(name)")
+        #expect(bridgePage.returnedCount == jxaPage.returnedCount, "returnedCount mismatch on scenario=\(name)")
+        #expect(bridgePage.nextCursor == jxaPage.nextCursor, "nextCursor mismatch on scenario=\(name)")
+
+        let bridgeIDs = bridgePage.items.map(\.id)
+        let jxaIDs = jxaPage.items.map(\.id)
+        #expect(bridgeIDs == jxaIDs, "item ID ordering mismatch on scenario=\(name)")
+    }
+}
+
+@Test
+func bridgeAndJXAProjectCountsParityLive() async throws {
+    let env = ProcessInfo.processInfo.environment
+    guard env["FOCUS_RELAY_PARITY_TESTS"] == "1" else {
+        return
+    }
+
+    let bridge = OmniFocusBridgeService()
+    let automation = OmniAutomationService()
+    let scenarios: [(String, TaskFilter)] = [
+        ("projectViewRemaining", TaskFilter(projectView: "remaining")),
+        ("projectViewActive", TaskFilter(projectView: "active")),
+        ("completedAfterEpoch", TaskFilter(completed: true, completedAfter: Date(timeIntervalSince1970: 0)))
+    ]
+
+    for (name, filter) in scenarios {
+        let bridgeCounts = try await retryProjectCounts(service: bridge, filter: filter)
+        let jxaCounts = try await retryProjectCounts(service: automation, filter: filter)
+        #expect(
+            bridgeCounts.projects == jxaCounts.projects &&
+                bridgeCounts.actions == jxaCounts.actions,
+            "Project counts mismatch for scenario=\(name). bridge=\(bridgeCounts) jxa=\(jxaCounts)"
+        )
+    }
+}
+
+@Test
 func bridgeInboxViewCountsMatchListTasksLive() throws {
     let env = ProcessInfo.processInfo.environment
     guard env["FOCUS_RELAY_BRIDGE_TESTS"] == "1" else {
@@ -259,6 +364,50 @@ func bridgeProjectCountsLive() throws {
     let counts = try client.getProjectCounts(filter: TaskFilter(projectView: "remaining"))
     #expect(counts.projects >= 0)
     #expect(counts.actions >= 0)
+}
+
+@Test
+func bridgeProjectCountsActiveMatchesListTasksTotalLive() async throws {
+    let env = ProcessInfo.processInfo.environment
+    guard env["FOCUS_RELAY_PARITY_TESTS"] == "1" else {
+        return
+    }
+
+    let service = OmniFocusBridgeService()
+    let filter = TaskFilter(
+        completed: false,
+        availableOnly: false,
+        projectView: "active",
+        includeTotalCount: true
+    )
+
+    let counts = try await retryProjectCounts(service: service, filter: filter)
+    let page = try await retryListTasks(service: service, filter: filter, page: PageRequest(limit: 50), fields: ["id"])
+    if let total = page.totalCount {
+        #expect(counts.actions == total)
+    }
+}
+
+@Test
+func jxaProjectCountsActiveMatchesListTasksTotalLive() async throws {
+    let env = ProcessInfo.processInfo.environment
+    guard env["FOCUS_RELAY_PARITY_TESTS"] == "1" else {
+        return
+    }
+
+    let service = OmniAutomationService()
+    let filter = TaskFilter(
+        completed: false,
+        availableOnly: false,
+        projectView: "active",
+        includeTotalCount: true
+    )
+
+    let counts = try await retryProjectCounts(service: service, filter: filter)
+    let page = try await retryListTasks(service: service, filter: filter, page: PageRequest(limit: 50), fields: ["id"])
+    if let total = page.totalCount {
+        #expect(counts.actions == total)
+    }
 }
 
 @Test
@@ -616,5 +765,58 @@ func bridgePlannedDateFiltersReturnOnlyPlannedTasksLive() throws {
     // If there are planned tasks, all returned rows must include plannedDate.
     if !page.items.isEmpty {
         #expect(page.items.allSatisfy { $0.plannedDate != nil })
+    }
+}
+
+private func retryTaskCounts(
+    service: any OmniFocusService,
+    filter: TaskFilter,
+    maxAttempts: Int = 3
+) async throws -> TaskCounts {
+    try await retryOperation(maxAttempts: maxAttempts) {
+        try await service.getTaskCounts(filter: filter)
+    }
+}
+
+private func retryListTasks(
+    service: any OmniFocusService,
+    filter: TaskFilter,
+    page: PageRequest,
+    fields: [String],
+    maxAttempts: Int = 3
+) async throws -> Page<TaskItem> {
+    try await retryOperation(maxAttempts: maxAttempts) {
+        try await service.listTasks(filter: filter, page: page, fields: fields)
+    }
+}
+
+private func retryProjectCounts(
+    service: any OmniFocusService,
+    filter: TaskFilter,
+    maxAttempts: Int = 3
+) async throws -> ProjectCounts {
+    try await retryOperation(maxAttempts: maxAttempts) {
+        try await service.getProjectCounts(filter: filter)
+    }
+}
+
+private func retryOperation<T>(
+    maxAttempts: Int,
+    delaySeconds: TimeInterval = 1.0,
+    _ operation: @escaping () async throws -> T
+) async throws -> T {
+    var attempt = 0
+    while true {
+        attempt += 1
+        do {
+            return try await operation()
+        } catch {
+            let isTimeout = error.localizedDescription.lowercased().contains("timed out")
+                || error.localizedDescription.lowercased().contains("timeout")
+            if !isTimeout || attempt >= maxAttempts {
+                throw error
+            }
+            try? await Task.sleep(nanoseconds: UInt64(delaySeconds * 1_000_000_000))
+        }
     }
 }
