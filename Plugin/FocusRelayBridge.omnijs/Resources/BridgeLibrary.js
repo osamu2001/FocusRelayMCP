@@ -323,6 +323,17 @@
           response.data = { ok: true, plugin: "FocusRelay Bridge", version: "0.1.0" };
         } else if (request.op === "list_inbox" || request.op === "list_tasks") {
           const filter = request.filter || {};
+          const debugListTasks = filter.search === "__debug_list_tasks__";
+          const listTasksDebug = debugListTasks ? {
+            requestId: requestId,
+            op: request.op,
+            marks: []
+          } : null;
+          const markListTasks = (label, extra) => {
+            if (!listTasksDebug) { return; }
+            const entry = Object.assign({ label: label, ms: Date.now() - start }, extra || {});
+            listTasksDebug.marks.push(entry);
+          };
           const fields = request.fields || [];
           const hasField = (name) => fields.length === 0 || fields.indexOf(name) !== -1;
 
@@ -333,6 +344,7 @@
           } else {
             tasks = flattenedTasks;
           }
+          markListTasks("selected_base_pool", { useInbox: useInbox, count: tasks.length });
 
           if (!useInbox && typeof filter.project === "string" && filter.project.length > 0) {
             const projectFilter = filter.project;
@@ -344,6 +356,7 @@
               return pid === projectFilter || pname === projectFilter;
             });
           }
+          markListTasks("after_project_scope", { count: tasks.length, projectFilter: filter.project || null });
           // Note: When inboxOnly is false and no project filter is specified,
           // we return tasks from all projects (flattenedTasks)
 
@@ -351,18 +364,15 @@
           const isEverything = inboxView === "everything";
           const isRemaining = inboxView === "remaining";
 
-          if (typeof filter.completed === "boolean") {
-            tasks = tasks.filter(t => isCompletedStatus(t) === filter.completed);
-          } else if (!isEverything) {
-            tasks = tasks.filter(t => isRemainingStatus(t));
-          }
-
           const availableOnly = (typeof filter.availableOnly === "boolean")
             ? filter.availableOnly
             : (filter.completed === true ? false : !isRemaining && !isEverything);
-          if (availableOnly) {
-            tasks = tasks.filter(t => isTaskAvailable(t));
-          }
+          markListTasks("derived_view_state", {
+            count: tasks.length,
+            completed: filter.completed,
+            inboxView: inboxView,
+            availableOnly: availableOnly
+          });
 
           // Timezone-aware date calculations
           // Get user's timezone from request, fallback to local
@@ -397,7 +407,7 @@
             // Status filters
             completed: filter.completed,
             flagged: filter.flagged,
-            availableOnly: filter.availableOnly,
+            availableOnly: availableOnly,
             
             // Project filter
             projectFilter: filter.project,
@@ -430,6 +440,8 @@
             if (filterState.completed !== undefined) {
               const taskCompleted = isCompletedStatus(t);
               if (taskCompleted !== filterState.completed) return false;
+            } else if (!isEverything) {
+              if (!isRemainingStatus(t)) return false;
             }
             if (filterState.flagged !== undefined) {
               const taskFlagged = Boolean(t.flagged);
@@ -521,23 +533,44 @@
 
           // Filter first, then apply pagination. Cursor semantics are based on the
           // filtered/sorted result set, not the original OmniFocus flattened list.
+          const filterPassStart = Date.now();
           tasks = tasks.filter(taskMatchesFilters);
+          markListTasks("after_filter_pass", {
+            count: tasks.length,
+            durationMs: Date.now() - filterPassStart
+          });
           const totalCount = includeTotalCount ? tasks.length : null;
 
           // Sort by completion date descending when filtering by completed tasks
           // This matches OmniFocus Completed perspective behavior
           if (filterState.completed === true || filterState.completedAfter || filterState.completedBefore) {
+            const sortStart = Date.now();
             tasks.sort((a, b) => {
               const dateA = getTaskDateTimestamp(a, t => t.completionDate) || 0;
               const dateB = getTaskDateTimestamp(b, t => t.completionDate) || 0;
               return dateB - dateA;
+            });
+            markListTasks("after_completion_sort", {
+              count: tasks.length,
+              durationMs: Date.now() - sortStart
             });
           }
 
           // Apply offset + limit to the filtered/sorted task list.
           const safeOffset = Number.isFinite(offset) && offset > 0 ? offset : 0;
           const pageTasks = tasks.slice(safeOffset, safeOffset + limit);
+          markListTasks("after_paging", {
+            pageCount: pageTasks.length,
+            totalCount: totalCount,
+            offset: safeOffset,
+            limit: limit
+          });
+          const payloadStart = Date.now();
           const items = pageTasks.map(t => taskToPayload(t, fields));
+          markListTasks("after_payload_map", {
+            returnedCount: items.length,
+            durationMs: Date.now() - payloadStart
+          });
           
           // Calculate returned count (actual items in this response)
           const returnedCount = items.length;
@@ -550,6 +583,12 @@
           response.data = { items: items, nextCursor: nextCursor, returnedCount: returnedCount };
           if (includeTotalCount) {
             response.data.totalCount = totalCount;
+          }
+          if (listTasksDebug) {
+            listTasksDebug.totalTimingMs = Date.now() - start;
+            try {
+              writeJSON(basePath + "/logs/list_tasks_debug_" + requestId + ".json", listTasksDebug);
+            } catch (debugError) {}
           }
         } else if (request.op === "list_projects") {
           const fields = request.fields || [];
