@@ -444,11 +444,53 @@ final class BridgeClient: @unchecked Sendable {
         let requestExists = fileManager.fileExists(atPath: requestURL.path)
         let responseExists = fileManager.fileExists(atPath: url.path)
         let lockExists = fileManager.fileExists(atPath: lockURL.path)
+
+        if shouldAttemptLateStrandedRecovery(
+            transport: configuration.dispatchTransport,
+            requestExists: requestExists,
+            responseExists: responseExists,
+            lockExists: lockExists
+        ) {
+            do {
+                if let recovered: BridgeResponse<T> = try attemptLateStrandedRecovery(
+                    at: url,
+                    requestId: requestId,
+                    timeout: timeout,
+                    responseType: responseType
+                ) {
+                    return recovered
+                }
+            } catch {
+                lastReadError = error
+            }
+        }
+
         let timeoutSeconds = String(format: "%.1f", timeout)
         let lastReadDetail = lastReadError.map { String(describing: $0) } ?? "none"
         throw AutomationError.executionFailed(
             "Bridge response timed out after \(timeoutSeconds)s (requestId=\(requestId), requestExists=\(requestExists), responseExists=\(responseExists), lockExists=\(lockExists), lastReadError=\(lastReadDetail))"
         )
+    }
+
+    private func attemptLateStrandedRecovery<T: Decodable>(
+        at responseURL: URL,
+        requestId: String,
+        timeout: TimeInterval,
+        responseType: T.Type
+    ) throws -> BridgeResponse<T>? {
+        try writeDispatchRequestId(requestId)
+        try triggerOmniFocus(requestId: requestId)
+        let graceDeadline = Date().addingTimeInterval(lateStrandedRecoveryGrace(timeout: timeout))
+
+        while Date() < graceDeadline {
+            if fileManager.fileExists(atPath: responseURL.path) {
+                let data = try Data(contentsOf: responseURL)
+                return try decoder.decode(BridgeResponse<T>.self, from: data)
+            }
+            Thread.sleep(forTimeInterval: configuration.responsePollInterval)
+        }
+
+        return nil
     }
 
     private func cleanupStaleFiles() {
@@ -534,6 +576,19 @@ struct BridgeClientConfiguration: Equatable {
 
 func strandedRedispatchDelay(timeout: TimeInterval) -> TimeInterval {
     min(2.0, max(0.5, timeout * 0.1))
+}
+
+func lateStrandedRecoveryGrace(timeout: TimeInterval) -> TimeInterval {
+    min(10.0, max(3.0, timeout * 0.2))
+}
+
+func shouldAttemptLateStrandedRecovery(
+    transport: BridgeDispatchTransport,
+    requestExists: Bool,
+    responseExists: Bool,
+    lockExists: Bool
+) -> Bool {
+    transport == .urlScheme && requestExists && !responseExists && !lockExists
 }
 
 enum BridgeDispatchTransport: Equatable {

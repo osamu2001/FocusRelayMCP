@@ -49,6 +49,13 @@ func strandedRedispatchDelayIsBounded() {
 }
 
 @Test
+func lateStrandedRecoveryGraceIsBounded() {
+    #expect(lateStrandedRecoveryGrace(timeout: 45.0) == 9.0)
+    #expect(abs(lateStrandedRecoveryGrace(timeout: 12.0) - 3.0) < 0.000_001)
+    #expect(lateStrandedRecoveryGrace(timeout: 120.0) == 10.0)
+}
+
+@Test
 func bridgeDispatchTransportDefaultsToURL() {
     #expect(BridgeDispatchTransport.fromEnvironment([:]) == .urlScheme)
     #expect(BridgeDispatchTransport.fromEnvironment(["FOCUS_RELAY_BRIDGE_DISPATCH_TRANSPORT": "url"]) == .urlScheme)
@@ -67,4 +74,35 @@ func buildBridgeDispatchScriptUsesStableDispatchRequestFile() {
     #expect(script.contains("/dispatch/request.json"))
     #expect(!script.contains("var requestId = argument;"))
     #expect(script.contains("handleRequest(requestId, basePath)"))
+}
+
+@Test
+func lateStrandedRecoveryOnlyAppliesToURLTransportWithoutLock() {
+    #expect(shouldAttemptLateStrandedRecovery(
+        transport: .urlScheme,
+        requestExists: true,
+        responseExists: false,
+        lockExists: false
+    ))
+
+    #expect(!shouldAttemptLateStrandedRecovery(
+        transport: .urlScheme,
+        requestExists: true,
+        responseExists: false,
+        lockExists: true
+    ))
+
+    #expect(!shouldAttemptLateStrandedRecovery(
+        transport: .jxaEvaluate,
+        requestExists: true,
+        responseExists: false,
+        lockExists: false
+    ))
+
+    #expect(!shouldAttemptLateStrandedRecovery(
+        transport: .urlScheme,
+        requestExists: false,
+        responseExists: false,
+        lockExists: false
+    ))
 }

@@ -33,8 +33,10 @@ struct BenchmarkListTasks: AsyncParsableCommand {
         let scenarios = listTaskScenarios(completedAfter: completedAfterDate)
         let outputURL = try listTaskBenchmarkOutputDirectory(customPath: outputDir)
         let rawURL = outputURL.appendingPathComponent("raw.jsonl")
+        let timeoutDiagnosticsURL = outputURL.appendingPathComponent("timeout-diagnostics.jsonl")
         let summaryURL = outputURL.appendingPathComponent("summary.md")
         FileManager.default.createFile(atPath: rawURL.path, contents: nil)
+        FileManager.default.createFile(atPath: timeoutDiagnosticsURL.path, contents: nil)
 
         print("Benchmark output directory: \(outputURL.path)")
         print("Scenarios: \(scenarios.map(\.name).joined(separator: ", "))")
@@ -49,29 +51,37 @@ struct BenchmarkListTasks: AsyncParsableCommand {
         if warmupCalls > 0 {
             for _ in 0..<warmupCalls {
                 let scenario = scenarios[callIndex % scenarios.count]
-                _ = try await listTaskBenchCall(
+                let event = try await listTaskBenchCall(
                     transport: "plugin",
                     scenario: scenario,
                     phase: "warmup",
                     service: pluginService,
+                    timeoutDiagnosticsURL: timeoutDiagnosticsURL,
                     intervalMS: intervalMS,
                     cooldownMS: cooldownMS,
                     callIndex: &callIndex,
                     rawURL: rawURL
                 )
+                if event.timeout {
+                    await runListTaskTimeoutRecoveryGate()
+                }
             }
             for _ in 0..<warmupCalls {
                 let scenario = scenarios[callIndex % scenarios.count]
-                _ = try await listTaskBenchCall(
+                let event = try await listTaskBenchCall(
                     transport: "jxa",
                     scenario: scenario,
                     phase: "warmup",
                     service: jxaService,
+                    timeoutDiagnosticsURL: timeoutDiagnosticsURL,
                     intervalMS: intervalMS,
                     cooldownMS: cooldownMS,
                     callIndex: &callIndex,
                     rawURL: rawURL
                 )
+                if event.timeout {
+                    await runListTaskTimeoutRecoveryGate()
+                }
             }
         }
 
@@ -87,6 +97,7 @@ struct BenchmarkListTasks: AsyncParsableCommand {
                 scenario: scenario,
                 phase: "measured",
                 service: pluginService,
+                timeoutDiagnosticsURL: timeoutDiagnosticsURL,
                 intervalMS: intervalMS,
                 cooldownMS: cooldownMS,
                 callIndex: &callIndex,
@@ -102,6 +113,7 @@ struct BenchmarkListTasks: AsyncParsableCommand {
                 scenario: scenario,
                 phase: "measured",
                 service: jxaService,
+                timeoutDiagnosticsURL: timeoutDiagnosticsURL,
                 intervalMS: intervalMS,
                 cooldownMS: cooldownMS,
                 callIndex: &callIndex,
@@ -122,7 +134,8 @@ struct BenchmarkListTasks: AsyncParsableCommand {
             endedAt: Date(),
             scenarios: scenarios.map(\.name),
             stats: stats,
-            mismatches: mismatches
+            mismatches: mismatches,
+            timeoutDiagnosticCount: listTaskCountLines(in: timeoutDiagnosticsURL)
         )
         try summary.write(to: summaryURL, atomically: true, encoding: .utf8)
 
@@ -168,6 +181,45 @@ private struct ListTaskStats {
     }
 }
 
+private struct ListTaskTimeoutQueueSnapshot: Codable {
+    let basePath: String
+    let requestsCount: Int
+    let locksCount: Int
+    let responsesCount: Int
+    let requestExists: Bool?
+    let lockExists: Bool?
+    let responseExists: Bool?
+    let sampleRequests: [String]
+    let sampleLocks: [String]
+    let sampleResponses: [String]
+}
+
+private struct ListTaskTimeoutProcessSnapshot: Codable {
+    let process: String
+    let pid: Int32?
+    let rssKB: Int?
+}
+
+private struct ListTaskTimeoutBridgeHealthSnapshot: Codable {
+    let ok: Bool
+    let detail: String
+}
+
+private struct ListTaskTimeoutDiagnostic: Codable {
+    let timestamp: String
+    let transport: String
+    let scenario: String
+    let phase: String
+    let callIndex: Int
+    let latencyMs: Double
+    let error: String
+    let requestId: String?
+    let queue: ListTaskTimeoutQueueSnapshot
+    let omniFocus: ListTaskTimeoutProcessSnapshot
+    let focusrelay: ListTaskTimeoutProcessSnapshot
+    let bridgeHealth: ListTaskTimeoutBridgeHealthSnapshot?
+}
+
 private func listTaskScenarios(completedAfter: Date) -> [ListTaskScenario] {
     [
         ListTaskScenario(name: "default", filter: TaskFilter(includeTotalCount: true)),
@@ -183,6 +235,7 @@ private func listTaskBenchCall(
     scenario: ListTaskScenario,
     phase: String,
     service: any OmniFocusService,
+    timeoutDiagnosticsURL: URL,
     intervalMS: Int,
     cooldownMS: Int,
     callIndex: inout Int,
@@ -219,6 +272,17 @@ private func listTaskBenchCall(
         try await listTaskEnforceInterval(started: started, intervalMS: intervalMS)
         if cooldownMS > 0 {
             try? await Task.sleep(nanoseconds: UInt64(cooldownMS) * 1_000_000)
+        }
+        if timeout {
+            let diagnostic = captureListTaskTimeoutDiagnostic(
+                transport: transport,
+                scenario: scenario,
+                phase: phase,
+                callIndex: callIndex,
+                latencyMs: elapsed,
+                errorMessage: error.localizedDescription
+            )
+            try? listTaskAppendJSONLine(diagnostic, to: timeoutDiagnosticsURL)
         }
         let event = ListTaskEvent(
             timestamp: listTaskISO8601Now(),
@@ -262,7 +326,8 @@ private func renderListTaskSummary(
     endedAt: Date,
     scenarios: [String],
     stats: [String: [String: ListTaskStats]],
-    mismatches: Int
+    mismatches: Int,
+    timeoutDiagnosticCount: Int
 ) -> String {
     func p(_ values: [Double], _ q: Double) -> String {
         guard !values.isEmpty else { return "n/a" }
@@ -298,6 +363,10 @@ private func renderListTaskSummary(
     lines.append("## Parity")
     lines.append("")
     lines.append("- Mismatch count: \(mismatches)")
+    lines.append("")
+    lines.append("## Timeout Diagnostics")
+    lines.append("")
+    lines.append("- Diagnostic entries: \(timeoutDiagnosticCount)")
     return lines.joined(separator: "\n")
 }
 
@@ -329,6 +398,182 @@ private func listTaskAppendJSONLine<T: Encodable>(_ value: T, to url: URL) throw
     defer { try? handle.close() }
     try handle.seekToEnd()
     try handle.write(contentsOf: Data(line.utf8))
+}
+
+private func captureListTaskTimeoutDiagnostic(
+    transport: String,
+    scenario: ListTaskScenario,
+    phase: String,
+    callIndex: Int,
+    latencyMs: Double,
+    errorMessage: String
+) -> ListTaskTimeoutDiagnostic {
+    let requestID = listTaskExtractRequestID(from: errorMessage)
+    let baseURL = listTaskDefaultIPCBaseURL()
+    let requestsURL = baseURL.appendingPathComponent("requests", isDirectory: true)
+    let locksURL = baseURL.appendingPathComponent("locks", isDirectory: true)
+    let responsesURL = baseURL.appendingPathComponent("responses", isDirectory: true)
+    let queue = ListTaskTimeoutQueueSnapshot(
+        basePath: baseURL.path,
+        requestsCount: listTaskDirectoryEntryCount(requestsURL),
+        locksCount: listTaskDirectoryEntryCount(locksURL),
+        responsesCount: listTaskDirectoryEntryCount(responsesURL),
+        requestExists: requestID.map { FileManager.default.fileExists(atPath: requestsURL.appendingPathComponent("\($0).json").path) },
+        lockExists: requestID.map { FileManager.default.fileExists(atPath: locksURL.appendingPathComponent("\($0).lock").path) },
+        responseExists: requestID.map { FileManager.default.fileExists(atPath: responsesURL.appendingPathComponent("\($0).json").path) },
+        sampleRequests: listTaskDirectoryEntrySamples(requestsURL),
+        sampleLocks: listTaskDirectoryEntrySamples(locksURL),
+        sampleResponses: listTaskDirectoryEntrySamples(responsesURL)
+    )
+    let omniPID = listTaskCurrentOmniFocusPID()
+    let benchmarkPID = ProcessInfo.processInfo.processIdentifier
+    let bridgeHealth: ListTaskTimeoutBridgeHealthSnapshot?
+    if transport == "plugin" {
+        if let result = try? OmniFocusBridgeService().healthCheck() {
+            bridgeHealth = ListTaskTimeoutBridgeHealthSnapshot(
+                ok: result.ok,
+                detail: "plugin=\(result.plugin ?? "unknown") version=\(result.version ?? "unknown")"
+            )
+        } else {
+            bridgeHealth = ListTaskTimeoutBridgeHealthSnapshot(
+                ok: false,
+                detail: "bridge-health-check failed after timeout"
+            )
+        }
+    } else {
+        bridgeHealth = nil
+    }
+
+    return ListTaskTimeoutDiagnostic(
+        timestamp: listTaskISO8601Now(),
+        transport: transport,
+        scenario: scenario.name,
+        phase: phase,
+        callIndex: callIndex,
+        latencyMs: latencyMs,
+        error: errorMessage,
+        requestId: requestID,
+        queue: queue,
+        omniFocus: ListTaskTimeoutProcessSnapshot(
+            process: "OmniFocus",
+            pid: omniPID,
+            rssKB: omniPID.flatMap(listTaskReadRSSKilobytes(pid:))
+        ),
+        focusrelay: ListTaskTimeoutProcessSnapshot(
+            process: "focusrelay",
+            pid: benchmarkPID,
+            rssKB: listTaskReadRSSKilobytes(pid: benchmarkPID)
+        ),
+        bridgeHealth: bridgeHealth
+    )
+}
+
+private func listTaskExtractRequestID(from message: String) -> String? {
+    let pattern = #"requestId=([A-F0-9-]+)"#
+    guard let regex = try? NSRegularExpression(pattern: pattern) else {
+        return nil
+    }
+    let range = NSRange(message.startIndex..<message.endIndex, in: message)
+    guard let match = regex.firstMatch(in: message, range: range),
+          let matchRange = Range(match.range(at: 1), in: message) else {
+        return nil
+    }
+    return String(message[matchRange])
+}
+
+private func listTaskDirectoryEntryCount(_ url: URL) -> Int {
+    guard let contents = try? FileManager.default.contentsOfDirectory(atPath: url.path) else {
+        return 0
+    }
+    return contents.count
+}
+
+private func listTaskDirectoryEntrySamples(_ url: URL, limit: Int = 5) -> [String] {
+    guard let contents = try? FileManager.default.contentsOfDirectory(atPath: url.path) else {
+        return []
+    }
+    return Array(contents.sorted().prefix(limit))
+}
+
+private func listTaskDefaultIPCBaseURL() -> URL {
+    let home = FileManager.default.homeDirectoryForCurrentUser
+    let container = home
+        .appendingPathComponent("Library", isDirectory: true)
+        .appendingPathComponent("Containers", isDirectory: true)
+        .appendingPathComponent("com.omnigroup.OmniFocus4", isDirectory: true)
+        .appendingPathComponent("Data", isDirectory: true)
+        .appendingPathComponent("Documents", isDirectory: true)
+        .appendingPathComponent("FocusRelayIPC", isDirectory: true)
+
+    if FileManager.default.fileExists(atPath: container.deletingLastPathComponent().path) {
+        return container
+    }
+
+    return home
+        .appendingPathComponent("Library", isDirectory: true)
+        .appendingPathComponent("Caches", isDirectory: true)
+        .appendingPathComponent("focusrelay", isDirectory: true)
+}
+
+private func listTaskCurrentOmniFocusPID() -> Int32? {
+    guard let output = try? listTaskRunProcess(
+        executable: "/usr/bin/pgrep",
+        arguments: ["-x", "OmniFocus"],
+        timeout: 3
+    ) else {
+        return nil
+    }
+    let firstLine = output.split(separator: "\n").first
+    return firstLine.flatMap { Int32($0) }
+}
+
+private func listTaskReadRSSKilobytes(pid: Int32) -> Int? {
+    guard let output = try? listTaskRunProcess(
+        executable: "/bin/ps",
+        arguments: ["-o", "rss=", "-p", String(pid)],
+        timeout: 3
+    ) else {
+        return nil
+    }
+    return Int(output.trimmingCharacters(in: .whitespacesAndNewlines))
+}
+
+@discardableResult
+private func listTaskRunProcess(executable: String, arguments: [String], timeout: TimeInterval = 15) throws -> String {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: executable)
+    process.arguments = arguments
+    let pipe = Pipe()
+    process.standardOutput = pipe
+    process.standardError = pipe
+    try process.run()
+
+    let deadline = Date().addingTimeInterval(timeout)
+    while process.isRunning && Date() < deadline {
+        Thread.sleep(forTimeInterval: 0.05)
+    }
+
+    if process.isRunning {
+        process.terminate()
+        throw AutomationError.executionFailed("Process \(executable) timed out after \(Int(timeout))s")
+    }
+
+    process.waitUntilExit()
+    let data = pipe.fileHandleForReading.readDataToEndOfFile()
+    let output = String(decoding: data, as: UTF8.self)
+    if process.terminationStatus != 0 {
+        throw AutomationError.executionFailed("Process \(executable) failed: \(output)")
+    }
+    return output
+}
+
+private func listTaskCountLines(in url: URL) -> Int {
+    guard let data = try? Data(contentsOf: url),
+          let text = String(data: data, encoding: .utf8),
+          !text.isEmpty else {
+        return 0
+    }
+    return text.split(separator: "\n").count
 }
 
 private func listTaskIsTimeout(_ error: Error) -> Bool {
