@@ -184,3 +184,34 @@ The next optimization should be careful:
 - Keep `plugin-url` as the production default.
 - Keep optimizing `list_tasks` on the plugin path.
 - Use the extended benchmark for future `list_tasks` changes so no-total-count performance is measured directly rather than inferred.
+
+
+## Availability Memoization Experiment (Reverted)
+
+I tried one more `list_tasks` optimization after the completion-topK change:
+- request-scoped memoization for project availability state
+- request-scoped memoization for parent terminal status
+- reusing the resolved project inside the `availableOnly` filter path
+
+Artifacts:
+- `docs/benchmarks/list-tasks-smoke-post-availability-memo-20260315-2323/summary.md`
+- `docs/benchmarks/list-tasks-1h-post-availability-memo-20260315-2337/summary.md`
+- `docs/benchmarks/list-tasks-1h-post-availability-memo-20260315-2337/timeout-diagnostics.jsonl`
+
+Result:
+- smoke stayed semantically clean (`0` errors, `0` mismatches), but it was not directly comparable to the earlier smoke because it ran longer and accumulated more runtime pressure
+- the 1-hour validation was worse than the prior 1-hour baseline:
+  - plugin `default` p50/p95: `6671/7853 -> 8039/12598`
+  - plugin `available_only` p50/p95: `7041/8842 -> 8882/12508`
+  - plugin picked up `2` timeouts where the previous 1-hour run had `0`
+- timeout diagnostics showed a backed-up bridge queue with `lockExists=true` and no response file for the timed-out requests, plus OmniFocus RSS above `1 GB`
+
+Interpretation:
+- this memoization attempt did not produce a defensible win
+- even if some of the slowdown was environmental, the change did not improve the production path enough to justify keeping it
+- the experiment was reverted so the branch stays on the last proven `list_tasks` implementation
+
+Updated recommendation:
+- keep the completion-topK and streamed paging improvements
+- do not keep the request-scoped availability memoization attempt
+- treat the remaining `list_tasks` cost as dominated by OmniFocus runtime pressure and `flattenedTasks` access, not obviously by repeated JS availability checks
