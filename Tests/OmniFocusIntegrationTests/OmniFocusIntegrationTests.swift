@@ -131,8 +131,12 @@ func bridgeAndJXAListTasksParityLive() async throws {
 
     var scenarios: [(String, TaskFilter)] = [
         ("default", TaskFilter(includeTotalCount: true)),
+        ("defaultNoTotal", TaskFilter(includeTotalCount: false)),
         ("inboxOnly", TaskFilter(inboxOnly: true, includeTotalCount: true)),
+        ("inboxOnlyNoTotal", TaskFilter(inboxOnly: true, includeTotalCount: false)),
         ("availableOnly", TaskFilter(availableOnly: true, includeTotalCount: true)),
+        ("availableOnlyNoTotal", TaskFilter(availableOnly: true, includeTotalCount: false)),
+        ("flaggedOnlyNoTotal", TaskFilter(flagged: true, includeTotalCount: false)),
         ("completedAfterEpoch", TaskFilter(completed: true, completedAfter: Date(timeIntervalSince1970: 0), includeTotalCount: true))
     ]
 

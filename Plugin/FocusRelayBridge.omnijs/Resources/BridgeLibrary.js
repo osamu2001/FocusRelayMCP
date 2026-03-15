@@ -567,13 +567,12 @@
             filterState.minEstimatedMinutes !== undefined ||
             Boolean(filterState.tags) ||
             Boolean(filter.search);
-          const useAvailableStreamFastPath =
-            !includeTotalCount &&
+          const useStreamedSimplePath =
             !requiresCompletionSort &&
             filterState.availableOnly &&
             !hasAdvancedFilters;
 
-          if (useAvailableStreamFastPath) {
+          if (useStreamedSimplePath) {
             const fastPathStart = Date.now();
             const pageTasks = [];
             let matchedCount = 0;
@@ -615,8 +614,17 @@
                 continue;
               }
 
-              hasMore = true;
-              break;
+              if (!includeTotalCount) {
+                hasMore = true;
+                break;
+              }
+
+              matchedCount += 1;
+            }
+
+            const totalCount = includeTotalCount ? matchedCount : null;
+            if (includeTotalCount) {
+              hasMore = (safeOffset + pageTasks.length) < matchedCount;
             }
 
             markListTasks("after_stream_fast_path", {
@@ -628,7 +636,9 @@
               durationMs: Date.now() - fastPathStart,
               offset: safeOffset,
               limit: limit,
-              hasMore: hasMore
+              hasMore: hasMore,
+              includeTotalCount: includeTotalCount,
+              totalCount: totalCount
             });
 
             const payloadStart = Date.now();
@@ -641,6 +651,9 @@
             const returnedCount = items.length;
             const nextCursor = hasMore ? String(safeOffset + items.length) : null;
             response.data = { items: items, nextCursor: nextCursor, returnedCount: returnedCount };
+            if (includeTotalCount) {
+              response.data.totalCount = totalCount;
+            }
             if (listTasksDebug) {
               listTasksDebug.totalTimingMs = Date.now() - start;
               try {

@@ -182,8 +182,12 @@ private func taskCountParityChecks(bridge: OmniFocusBridgeService, jxa: OmniAuto
 private func listTaskParityChecks(bridge: OmniFocusBridgeService, jxa: OmniAutomationService) async -> [GateCheck] {
     let scenarios = [
         GateListTaskScenario(name: "default", filter: TaskFilter(includeTotalCount: true)),
+        GateListTaskScenario(name: "default_no_total", filter: TaskFilter(includeTotalCount: false)),
         GateListTaskScenario(name: "inbox_only", filter: TaskFilter(inboxOnly: true, includeTotalCount: true)),
-        GateListTaskScenario(name: "available_only", filter: TaskFilter(availableOnly: true, includeTotalCount: true))
+        GateListTaskScenario(name: "inbox_only_no_total", filter: TaskFilter(inboxOnly: true, includeTotalCount: false)),
+        GateListTaskScenario(name: "available_only", filter: TaskFilter(availableOnly: true, includeTotalCount: true)),
+        GateListTaskScenario(name: "available_only_no_total", filter: TaskFilter(availableOnly: true, includeTotalCount: false)),
+        GateListTaskScenario(name: "flagged_only_no_total", filter: TaskFilter(flagged: true, includeTotalCount: false))
     ]
     let fields = ["id", "name", "completed", "available", "completionDate"]
 
@@ -204,7 +208,7 @@ private func listTaskParityChecks(bridge: OmniFocusBridgeService, jxa: OmniAutom
             return GateCheck(
                 name: "list_tasks_parity_\(scenario.name)",
                 ok: ok,
-                detail: "bridge.total=\(bridgePage.totalCount.map(String.init) ?? "nil") jxa.total=\(jxaPage.totalCount.map(String.init) ?? "nil") bridge.returned=\(bridgePage.returnedCount) jxa.returned=\(jxaPage.returnedCount)"
+                detail: "bridge.total=\(bridgePage.totalCount.map(String.init) ?? "nil") jxa.total=\(jxaPage.totalCount.map(String.init) ?? "nil") bridge.returned=\(bridgePage.returnedCount) jxa.returned=\(jxaPage.returnedCount) bridge.next=\(bridgePage.nextCursor ?? "nil") jxa.next=\(jxaPage.nextCursor ?? "nil")"
             )
         } catch {
             return GateCheck(name: "list_tasks_parity_\(scenario.name)", ok: false, detail: error.localizedDescription)

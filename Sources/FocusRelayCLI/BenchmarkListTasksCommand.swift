@@ -124,7 +124,7 @@ struct BenchmarkListTasks: AsyncParsableCommand {
                 await runListTaskTimeoutRecoveryGate()
             }
 
-            if pluginEvent.ok && jxaEvent.ok && pluginEvent.totalCount != jxaEvent.totalCount {
+            if pluginEvent.ok && jxaEvent.ok && !listTaskEventsMatch(pluginEvent, jxaEvent) {
                 mismatches += 1
             }
         }
@@ -162,6 +162,9 @@ private struct ListTaskEvent: Codable {
     let error: String?
     let returnedCount: Int?
     let totalCount: Int?
+    let nextCursor: String?
+    let firstItemID: String?
+    let lastItemID: String?
 }
 
 private struct ListTaskStats {
@@ -223,10 +226,14 @@ private struct ListTaskTimeoutDiagnostic: Codable {
 private func listTaskScenarios(completedAfter: Date) -> [ListTaskScenario] {
     [
         ListTaskScenario(name: "default", filter: TaskFilter(includeTotalCount: true)),
+        ListTaskScenario(name: "default_no_total", filter: TaskFilter(includeTotalCount: false)),
         ListTaskScenario(name: "inbox_only", filter: TaskFilter(inboxOnly: true, includeTotalCount: true)),
+        ListTaskScenario(name: "inbox_only_no_total", filter: TaskFilter(inboxOnly: true, includeTotalCount: false)),
         ListTaskScenario(name: "available_only", filter: TaskFilter(availableOnly: true, includeTotalCount: true)),
+        ListTaskScenario(name: "available_only_no_total", filter: TaskFilter(availableOnly: true, includeTotalCount: false)),
         ListTaskScenario(name: "completed_after_anchor", filter: TaskFilter(completed: true, completedAfter: completedAfter, includeTotalCount: true)),
-        ListTaskScenario(name: "flagged_only", filter: TaskFilter(flagged: true, includeTotalCount: true))
+        ListTaskScenario(name: "flagged_only", filter: TaskFilter(flagged: true, includeTotalCount: true)),
+        ListTaskScenario(name: "flagged_only_no_total", filter: TaskFilter(flagged: true, includeTotalCount: false))
     ]
 }
 
@@ -262,7 +269,10 @@ private func listTaskBenchCall(
             timeout: false,
             error: nil,
             returnedCount: page.returnedCount,
-            totalCount: page.totalCount
+            totalCount: page.totalCount,
+            nextCursor: page.nextCursor,
+            firstItemID: page.items.first?.id,
+            lastItemID: page.items.last?.id
         )
         try listTaskAppendJSONLine(event, to: rawURL)
         return event
@@ -295,7 +305,10 @@ private func listTaskBenchCall(
             timeout: timeout,
             error: error.localizedDescription,
             returnedCount: nil,
-            totalCount: nil
+            totalCount: nil,
+            nextCursor: nil,
+            firstItemID: nil,
+            lastItemID: nil
         )
         try listTaskAppendJSONLine(event, to: rawURL)
         return event
@@ -319,6 +332,14 @@ private func ingestListTaskEvent(_ event: ListTaskEvent, into stats: inout [Stri
     perTransport.ingest(event)
     perScenario[event.transport] = perTransport
     stats[event.scenario] = perScenario
+}
+
+private func listTaskEventsMatch(_ lhs: ListTaskEvent, _ rhs: ListTaskEvent) -> Bool {
+    lhs.returnedCount == rhs.returnedCount &&
+    lhs.totalCount == rhs.totalCount &&
+    lhs.nextCursor == rhs.nextCursor &&
+    lhs.firstItemID == rhs.firstItemID &&
+    lhs.lastItemID == rhs.lastItemID
 }
 
 private func renderListTaskSummary(
