@@ -104,6 +104,41 @@ Interpretation:
 - For the common simple non-inbox workloads, dropping `totalCount` saves roughly `300-400ms` in the smoke run.
 - The plugin path now beats JXA on the no-total-count `default` and `available_only` scenarios in this benchmark.
 
+### 1-hour validation after completion-topK optimization
+
+Artifact:
+- `docs/benchmarks/list-tasks-1h-post-completion-topk-20260315-1238/summary.md`
+
+Compared against the prior 1-hour baseline:
+- `docs/benchmarks/list-tasks-1h-post-stream-fast-path-20260314-2313/summary.md`
+
+Key plugin changes:
+- `default`
+  - p50: `7204ms -> 6671ms`
+  - p95: `8782ms -> 7853ms`
+- `available_only`
+  - p50: `7345ms -> 7041ms`
+  - p95: `10551ms -> 8842ms`
+- `completed_after_anchor`
+  - p50: `6090ms -> 5611ms`
+  - p95: `8008ms -> 8128ms`
+  - p99: `10975ms -> 8884ms`
+- `flagged_only`
+  - p50: `6005ms -> 5796ms`
+  - p95: `7685ms -> 7880ms`
+
+Reliability:
+- plugin errors/timeouts: `0`
+- jxa errors/timeouts: `0`
+- timeout diagnostics: `0`
+- parity mismatches: `1`
+
+Interpretation:
+- The completion-topK path is worth keeping.
+- It reduced median latency on every major benchmarked plugin scenario.
+- It improved the heavy completion-sorted path in the most important way: lower median and much better p99 without introducing failures.
+- Some p95 tails remain mixed, so this is an incremental improvement, not a final answer.
+
 ### Direct command timing retained as supporting evidence
 
 Earlier direct timing, still consistent with the benchmark trend:
@@ -130,19 +165,19 @@ Two distinct paths are now separated clearly:
 ## Next Optimization Target
 
 The next `list_tasks` work should focus on:
-- `completed_after_anchor`
-- any other completion-sorted workloads
+- `available_only` and `default` total-count workloads
+- specifically the cost of repeated availability checks inside the simple streamed path
 
 Reason:
-- simple available/default/flagged/inbox queries now have targeted fast paths
-- completion-sorted queries still fall back to full scan + full sort
-- that is now the clearest remaining high-cost path inside `list_tasks`
+- simple no-total-count workloads are now benchmarked and clearly faster
+- completion-sorted workloads now have a lower-cost top-K path
+- the remaining large cost center is the total-count simple path, especially `available_only`
 
 The next optimization should be careful:
-- preserve exact completion-date ordering
-- preserve cursor semantics
-- preserve total-count semantics
+- preserve exact `isTaskAvailable` semantics
+- preserve `totalCount` semantics
 - avoid introducing undocumented Omni Automation usage
+- prefer memoization or reused status/project state over new query-path branching
 
 ## Current Recommendation
 

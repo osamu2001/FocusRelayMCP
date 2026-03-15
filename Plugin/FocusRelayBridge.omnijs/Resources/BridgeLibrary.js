@@ -448,7 +448,7 @@
           const projectView = (typeof filter.projectView === "string") ? filter.projectView.toLowerCase() : null;
 
           // Helper function to check if a task matches all filters
-          function taskMatchesFilters(t, knownTaskStatus, knownProject) {
+          function taskMatchesFilters(t, knownTaskStatus, knownProject, knownCompletionTs) {
             const taskStatusValue = knownTaskStatus === undefined ? taskStatus(t) : knownTaskStatus;
             // Status checks
             if (filterState.completed !== undefined) {
@@ -511,11 +511,11 @@
             
             // Completion date checks
             if (filterState.completedBeforeTs !== null) {
-              const completed = getTaskDateTimestamp(t, task => task.completionDate);
+              const completed = knownCompletionTs === undefined ? getTaskDateTimestamp(t, task => task.completionDate) : knownCompletionTs;
               if (completed === null || completed > filterState.completedBeforeTs) return false;
             }
             if (filterState.completedAfterTs !== null) {
-              const completed = getTaskDateTimestamp(t, task => task.completionDate);
+              const completed = knownCompletionTs === undefined ? getTaskDateTimestamp(t, task => task.completionDate) : knownCompletionTs;
               if (completed === null || completed < filterState.completedAfterTs) return false;
             }
             
@@ -571,6 +571,7 @@
             !requiresCompletionSort &&
             filterState.availableOnly &&
             !hasAdvancedFilters;
+          const useCompletionTopKPath = requiresCompletionSort;
 
           if (useStreamedSimplePath) {
             const fastPathStart = Date.now();
@@ -650,6 +651,89 @@
 
             const returnedCount = items.length;
             const nextCursor = hasMore ? String(safeOffset + items.length) : null;
+            response.data = { items: items, nextCursor: nextCursor, returnedCount: returnedCount };
+            if (includeTotalCount) {
+              response.data.totalCount = totalCount;
+            }
+            if (listTasksDebug) {
+              listTasksDebug.totalTimingMs = Date.now() - start;
+              try {
+                writeJSON(basePath + "/logs/list_tasks_debug_" + requestId + ".json", listTasksDebug);
+              } catch (debugError) {}
+            }
+          } else if (useCompletionTopKPath) {
+            const completionPathStart = Date.now();
+            const windowSize = Math.max(limit + 1, safeOffset + limit + 1);
+            const rankedEntries = [];
+            let matchedCount = 0;
+
+            function compareCompletionEntries(a, b) {
+              if (a.sortCompletionTs !== b.sortCompletionTs) {
+                return b.sortCompletionTs - a.sortCompletionTs;
+              }
+              return a.scanIndex - b.scanIndex;
+            }
+
+            function insertCompletionEntry(entry) {
+              let insertAt = rankedEntries.length;
+              while (insertAt > 0 && compareCompletionEntries(entry, rankedEntries[insertAt - 1]) < 0) {
+                insertAt -= 1;
+              }
+              rankedEntries.splice(insertAt, 0, entry);
+              if (rankedEntries.length > windowSize) {
+                rankedEntries.pop();
+              }
+            }
+
+            for (let i = 0; i < tasks.length; i += 1) {
+              const t = tasks[i];
+              const completionTs = getTaskDateTimestamp(t, task => task.completionDate);
+              if (!taskMatchesFilters(t, undefined, undefined, completionTs)) {
+                continue;
+              }
+
+              matchedCount += 1;
+              const entry = {
+                task: t,
+                completionTs: completionTs,
+                sortCompletionTs: completionTs === null ? 0 : completionTs,
+                scanIndex: i
+              };
+
+              if (rankedEntries.length < windowSize) {
+                insertCompletionEntry(entry);
+                continue;
+              }
+
+              const worstEntry = rankedEntries[rankedEntries.length - 1];
+              if (compareCompletionEntries(entry, worstEntry) >= 0) {
+                continue;
+              }
+              insertCompletionEntry(entry);
+            }
+
+            markListTasks("after_completion_topk", {
+              matchedCount: matchedCount,
+              retainedCount: rankedEntries.length,
+              durationMs: Date.now() - completionPathStart,
+              offset: safeOffset,
+              limit: limit,
+              windowSize: windowSize
+            });
+
+            const totalCount = includeTotalCount ? matchedCount : null;
+            const pageTasks = rankedEntries.slice(safeOffset, safeOffset + limit).map(entry => entry.task);
+            const payloadStart = Date.now();
+            const items = pageTasks.map(t => taskToPayload(t, fields));
+            markListTasks("after_payload_map", {
+              returnedCount: items.length,
+              durationMs: Date.now() - payloadStart
+            });
+
+            const returnedCount = items.length;
+            const hasMore = (safeOffset + items.length) < matchedCount;
+            const nextCursor = hasMore ? String(safeOffset + items.length) : null;
+
             response.data = { items: items, nextCursor: nextCursor, returnedCount: returnedCount };
             if (includeTotalCount) {
               response.data.totalCount = totalCount;
