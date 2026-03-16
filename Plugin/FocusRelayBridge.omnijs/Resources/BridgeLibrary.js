@@ -1061,15 +1061,17 @@
               status: getTagStatusString(tag)
             };
             
-            // Get task counts using OmniFocus built-in properties
-            // Note: Per documentation, cleanUp() should be called for accurate counts
-            const availableTasks = safe(() => tag.availableTasks);
-            const remainingTasks = safe(() => tag.remainingTasks);
-            const allTasks = safe(() => tag.tasks);
-            
-            item.availableTasks = availableTasks ? availableTasks.length : 0;
-            item.remainingTasks = remainingTasks ? remainingTasks.length : 0;
-            item.totalTasks = allTasks ? allTasks.length : 0;
+            if (includeTaskCounts) {
+              // Get task counts using OmniFocus built-in properties
+              // Note: Per documentation, cleanUp() should be called for accurate counts
+              const availableTasks = safe(() => tag.availableTasks);
+              const remainingTasks = safe(() => tag.remainingTasks);
+              const allTasks = safe(() => tag.tasks);
+              
+              item.availableTasks = availableTasks ? availableTasks.length : 0;
+              item.remainingTasks = remainingTasks ? remainingTasks.length : 0;
+              item.totalTasks = allTasks ? allTasks.length : 0;
+            }
             
             return item;
           });

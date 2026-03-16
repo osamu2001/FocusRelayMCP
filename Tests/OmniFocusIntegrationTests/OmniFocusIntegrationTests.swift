@@ -525,6 +525,29 @@ func bridgeTagsPagingLive() throws {
     }
 }
 
+@Test
+func bridgeTagTaskCountsShapeLive() throws {
+    let env = ProcessInfo.processInfo.environment
+    guard env["FOCUS_RELAY_BRIDGE_TESTS"] == "1" else {
+        return
+    }
+
+    let client = BridgeClient()
+    let withoutCounts = try client.listTags(page: PageRequest(limit: 10), statusFilter: "active", includeTaskCounts: false)
+    #expect(withoutCounts.items.allSatisfy { $0.availableTasks == nil })
+    #expect(withoutCounts.items.allSatisfy { $0.remainingTasks == nil })
+    #expect(withoutCounts.items.allSatisfy { $0.totalTasks == nil })
+
+    let withCounts = try client.listTags(page: PageRequest(limit: 10), statusFilter: "active", includeTaskCounts: true)
+    guard !withCounts.items.isEmpty else {
+        return
+    }
+
+    #expect(withCounts.items.allSatisfy { $0.availableTasks != nil })
+    #expect(withCounts.items.allSatisfy { $0.remainingTasks != nil })
+    #expect(withCounts.items.allSatisfy { $0.totalTasks != nil })
+}
+
 // MARK: - Status Edge Case Tests
 
 @Test
