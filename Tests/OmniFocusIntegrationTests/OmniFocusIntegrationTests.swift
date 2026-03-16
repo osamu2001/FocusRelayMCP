@@ -137,7 +137,8 @@ func bridgeAndJXAListTasksParityLive() async throws {
         ("availableOnly", TaskFilter(availableOnly: true, includeTotalCount: true)),
         ("availableOnlyNoTotal", TaskFilter(availableOnly: true, includeTotalCount: false)),
         ("flaggedOnlyNoTotal", TaskFilter(flagged: true, includeTotalCount: false)),
-        ("completedAfterEpoch", TaskFilter(completed: true, completedAfter: Date(timeIntervalSince1970: 0), includeTotalCount: true))
+        ("completedAfterEpoch", TaskFilter(completed: true, completedAfter: Date(timeIntervalSince1970: 0), includeTotalCount: true)),
+        ("projectViewActive", TaskFilter(completed: false, availableOnly: false, projectView: "active", includeTotalCount: true))
     ]
 
     let activeProjects = try await bridge.listProjects(
@@ -154,6 +155,22 @@ func bridgeAndJXAListTasksParityLive() async throws {
     )
     if let projectID = activeProjects.items.first?.id, !projectID.isEmpty {
         scenarios.append(("projectScopedSimple", TaskFilter(project: projectID, includeTotalCount: true)))
+        scenarios.append(("projectScopedNoTotal", TaskFilter(project: projectID, includeTotalCount: false)))
+    }
+
+    let activeTags = try await bridge.listTags(page: PageRequest(limit: 10), statusFilter: "active", includeTaskCounts: false)
+    if let tagID = activeTags.items.first?.id, !tagID.isEmpty {
+        scenarios.append(("tagScopedTotal", TaskFilter(tags: [tagID], includeTotalCount: true)))
+        scenarios.append(("tagScopedNoTotal", TaskFilter(tags: [tagID], includeTotalCount: false)))
+    }
+
+    let plannedAnchorPage = try await bridge.listTasks(
+        filter: TaskFilter(completed: false, availableOnly: false, includeTotalCount: false),
+        page: PageRequest(limit: 200),
+        fields: ["id", "plannedDate"]
+    )
+    if let plannedAfter = plannedAnchorPage.items.first(where: { $0.plannedDate != nil })?.plannedDate {
+        scenarios.append(("plannedAfterAnchor", TaskFilter(plannedAfter: plannedAfter, includeTotalCount: true)))
     }
 
     for (name, filter) in scenarios {
