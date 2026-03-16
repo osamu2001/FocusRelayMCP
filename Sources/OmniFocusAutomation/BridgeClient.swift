@@ -7,6 +7,8 @@ final class BridgeClient: @unchecked Sendable {
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
     private let staleInterval: TimeInterval
+    private let cleanupLock = NSLock()
+    private var lastStaleCleanupAt: Date?
     private let dispatchRunner: SerializedJXARunner
     private let configuration: BridgeClientConfiguration
 
@@ -294,7 +296,7 @@ final class BridgeClient: @unchecked Sendable {
         try [paths.baseURL, paths.requestsURL, paths.responsesURL, paths.locksURL, paths.logsURL].forEach { url in
             try fileManager.createDirectory(at: url, withIntermediateDirectories: true)
         }
-        cleanupStaleFiles()
+        cleanupStaleFilesIfNeeded()
     }
 
     private func writeRequest(_ request: BridgeRequest, requestId: String) throws {
@@ -493,8 +495,31 @@ final class BridgeClient: @unchecked Sendable {
         return nil
     }
 
-    private func cleanupStaleFiles() {
-        let now = Date()
+    func cleanupStaleFilesIfNeeded(now: Date = Date()) {
+        guard shouldRunStaleCleanup(now: now) else {
+            return
+        }
+        cleanupStaleFiles(now: now)
+    }
+
+    func shouldRunStaleCleanup(now: Date = Date()) -> Bool {
+        guard staleInterval > 0 else {
+            return true
+        }
+
+        cleanupLock.lock()
+        defer { cleanupLock.unlock() }
+
+        if let lastStaleCleanupAt,
+           now.timeIntervalSince(lastStaleCleanupAt) < staleInterval {
+            return false
+        }
+
+        lastStaleCleanupAt = now
+        return true
+    }
+
+    func cleanupStaleFiles(now: Date = Date()) {
         [paths.requestsURL, paths.responsesURL, paths.locksURL].forEach { dir in
             guard let items = try? fileManager.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.contentModificationDateKey]) else {
                 return
