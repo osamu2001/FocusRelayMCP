@@ -355,7 +355,9 @@ private func listTagContractChecks(using bridge: OmniFocusBridgeService) async -
                 && first.totalCount == second.totalCount
                 && first.nextCursor == second.nextCursor
                 && first.items.map(\.id) == second.items.map(\.id)
-            let countsOk = !scenario.includeTaskCounts || first.items.allSatisfy { $0.availableTasks != nil && $0.remainingTasks != nil && $0.totalTasks != nil }
+            let countsOk = scenario.includeTaskCounts
+                ? first.items.allSatisfy { $0.availableTasks != nil && $0.remainingTasks != nil && $0.totalTasks != nil }
+                : first.items.allSatisfy { $0.availableTasks == nil && $0.remainingTasks == nil && $0.totalTasks == nil }
             return GateCheck(
                 name: "list_tags_contract_\(scenario.name)",
                 ok: pageOk && countsOk,
