@@ -4,10 +4,11 @@ import OmniFocusCore
 public final class OmniFocusBridgeService: OmniFocusService {
     private let client: BridgeClient
     private let cache = CatalogCache()
-    private let cacheTTL: TimeInterval = 300
+    private let cacheTTL: TimeInterval
 
-    public init() {
+    public init(cacheTTL: TimeInterval = 300) {
         self.client = BridgeClient()
+        self.cacheTTL = cacheTTL
     }
 
     public func listTasks(filter: TaskFilter, page: PageRequest, fields: [String]?) async throws -> Page<TaskItem> {
@@ -30,6 +31,20 @@ public final class OmniFocusBridgeService: OmniFocusService {
         completedAfter: Date?,
         fields: [String]?
     ) async throws -> Page<ProjectItem> {
+        guard cacheTTL > 0 else {
+            return try client.listProjects(
+                page: page,
+                statusFilter: statusFilter,
+                includeTaskCounts: includeTaskCounts,
+                reviewDueBefore: reviewDueBefore,
+                reviewDueAfter: reviewDueAfter,
+                reviewPerspective: reviewPerspective,
+                completed: completed,
+                completedBefore: completedBefore,
+                completedAfter: completedAfter,
+                fields: fields
+            )
+        }
         let shouldBypassCache = reviewPerspective || reviewDueBefore != nil || reviewDueAfter != nil || completed != nil || completedBefore != nil || completedAfter != nil
         if !shouldBypassCache {
             let key = CacheKey.projects(
@@ -72,6 +87,9 @@ public final class OmniFocusBridgeService: OmniFocusService {
     }
 
     public func listTags(page: PageRequest, statusFilter: String?, includeTaskCounts: Bool) async throws -> Page<TagItem> {
+        guard cacheTTL > 0 else {
+            return try client.listTags(page: page, statusFilter: statusFilter, includeTaskCounts: includeTaskCounts)
+        }
         let key = CacheKey.tags(
             page: page,
             statusFilter: statusFilter,
@@ -99,7 +117,8 @@ public final class OmniFocusBridgeService: OmniFocusService {
             ok: response.ok,
             plugin: response.data?.plugin,
             version: response.data?.version,
-            error: response.error?.message
+            error: response.error?.message,
+            timingMs: response.timingMs
         )
     }
 }
@@ -109,4 +128,5 @@ public struct BridgeHealthResult: Codable, Sendable {
     public let plugin: String?
     public let version: String?
     public let error: String?
+    public let timingMs: Int?
 }

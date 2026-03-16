@@ -148,3 +148,44 @@ For future work on this branch:
 - default benchmark profile: **realistic single-user validation**
 - stress profile: **diagnostic only**
 - transport A/B: **only for isolated transport experiments**
+
+## Catalog and IPC Follow-Up Baselines
+
+Use this follow-up set when the change is about:
+- \`list_projects\`
+- \`list_tags\`
+- bridge IPC overhead (\`ensureDirectories\` / \`waitForResponse\` follow-up work)
+
+Do not add these tools to the default suite script. Run them explicitly so the original optimization closeout suite stays stable.
+
+### Smoke
+
+Run semantic gates first:
+
+\`\`\`bash
+swift run focusrelay benchmark-gate-check --tool list-projects
+swift run focusrelay benchmark-gate-check --tool list-tags
+\`\`\`
+
+Then run a short smoke pass per tool:
+
+\`\`\`bash
+swift run focusrelay benchmark-list-projects --duration-hours 0.17 --warmup-calls 5 --interval-ms 2000 --cooldown-ms 3000
+swift run focusrelay benchmark-list-tags --duration-hours 0.17 --warmup-calls 5 --interval-ms 2000 --cooldown-ms 3000
+swift run focusrelay benchmark-bridge-health --duration-hours 0.17 --warmup-calls 5 --interval-ms 2000 --cooldown-ms 3000
+\`\`\`
+
+### Realistic
+
+For merge confidence on catalog/cache or IPC follow-up work, run each tool for 30 minutes:
+
+\`\`\`bash
+swift run focusrelay benchmark-list-projects --duration-hours 0.5 --warmup-calls 10 --interval-ms 5000 --cooldown-ms 5000
+swift run focusrelay benchmark-list-tags --duration-hours 0.5 --warmup-calls 10 --interval-ms 5000 --cooldown-ms 5000
+swift run focusrelay benchmark-bridge-health --duration-hours 0.5 --warmup-calls 10 --interval-ms 5000 --cooldown-ms 5000
+\`\`\`
+
+Interpretation rule:
+- use \`benchmark-list-projects\` and \`benchmark-list-tags\` as plugin-path baselines for query work
+- use \`benchmark-bridge-health\` as the IPC overhead baseline
+- compare follow-up changes against these numbers before claiming a latency win
