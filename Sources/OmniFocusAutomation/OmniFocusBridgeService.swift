@@ -32,8 +32,12 @@ public final class OmniFocusBridgeService: OmniFocusService {
     ) async throws -> Page<ProjectItem> {
         let shouldBypassCache = reviewPerspective || reviewDueBefore != nil || reviewDueAfter != nil || completed != nil || completedBefore != nil || completedAfter != nil
         if !shouldBypassCache {
-            let fieldsKey = (fields ?? []).joined(separator: ",")
-            let key = CacheKey(limit: page.limit, cursor: page.cursor, fieldsKey: fieldsKey)
+            let key = CacheKey.projects(
+                page: page,
+                fields: fields,
+                statusFilter: statusFilter,
+                includeTaskCounts: includeTaskCounts
+            )
             if let cached = await cache.getProjects(key: key) {
                 return cached
             }
@@ -68,7 +72,11 @@ public final class OmniFocusBridgeService: OmniFocusService {
     }
 
     public func listTags(page: PageRequest, statusFilter: String?, includeTaskCounts: Bool) async throws -> Page<TagItem> {
-        let key = CacheKey(limit: page.limit, cursor: page.cursor, fieldsKey: "")
+        let key = CacheKey.tags(
+            page: page,
+            statusFilter: statusFilter,
+            includeTaskCounts: includeTaskCounts
+        )
         if let cached = await cache.getTags(key: key) {
             return cached
         }

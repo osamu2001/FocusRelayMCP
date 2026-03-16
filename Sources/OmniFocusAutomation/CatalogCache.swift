@@ -5,6 +5,51 @@ struct CacheKey: Hashable {
     let limit: Int
     let cursor: String?
     let fieldsKey: String
+    let statusFilter: String?
+    let includeTaskCounts: Bool
+
+    private init(
+        limit: Int,
+        cursor: String?,
+        fieldsKey: String,
+        statusFilter: String?,
+        includeTaskCounts: Bool
+    ) {
+        self.limit = limit
+        self.cursor = cursor
+        self.fieldsKey = fieldsKey
+        self.statusFilter = statusFilter
+        self.includeTaskCounts = includeTaskCounts
+    }
+
+    static func projects(
+        page: PageRequest,
+        fields: [String]?,
+        statusFilter: String?,
+        includeTaskCounts: Bool
+    ) -> CacheKey {
+        CacheKey(
+            limit: page.limit,
+            cursor: page.cursor,
+            fieldsKey: (fields ?? []).joined(separator: ","),
+            statusFilter: statusFilter,
+            includeTaskCounts: includeTaskCounts
+        )
+    }
+
+    static func tags(
+        page: PageRequest,
+        statusFilter: String?,
+        includeTaskCounts: Bool
+    ) -> CacheKey {
+        CacheKey(
+            limit: page.limit,
+            cursor: page.cursor,
+            fieldsKey: "",
+            statusFilter: statusFilter,
+            includeTaskCounts: includeTaskCounts
+        )
+    }
 }
 
 struct CacheEntry<T> {
