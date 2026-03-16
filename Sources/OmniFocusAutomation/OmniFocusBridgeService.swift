@@ -12,11 +12,11 @@ public final class OmniFocusBridgeService: OmniFocusService {
     }
 
     public func listTasks(filter: TaskFilter, page: PageRequest, fields: [String]?) async throws -> Page<TaskItem> {
-        return try client.listTasks(filter: filter, page: page, fields: fields)
+        return try await client.listTasks(filter: filter, page: page, fields: fields)
     }
 
     public func getTask(id: String, fields: [String]?) async throws -> TaskItem {
-        return try client.getTask(id: id, fields: fields)
+        return try await client.getTask(id: id, fields: fields)
     }
 
     public func listProjects(
@@ -32,7 +32,7 @@ public final class OmniFocusBridgeService: OmniFocusService {
         fields: [String]?
     ) async throws -> Page<ProjectItem> {
         guard cacheTTL > 0 else {
-            return try client.listProjects(
+            return try await client.listProjects(
                 page: page,
                 statusFilter: statusFilter,
                 includeTaskCounts: includeTaskCounts,
@@ -56,7 +56,7 @@ public final class OmniFocusBridgeService: OmniFocusService {
             if let cached = await cache.getProjects(key: key) {
                 return cached
             }
-            let pageResult = try client.listProjects(
+            let pageResult = try await client.listProjects(
                 page: page,
                 statusFilter: statusFilter,
                 includeTaskCounts: includeTaskCounts,
@@ -72,7 +72,7 @@ public final class OmniFocusBridgeService: OmniFocusService {
             return pageResult
         }
 
-        return try client.listProjects(
+        return try await client.listProjects(
             page: page,
             statusFilter: statusFilter,
             includeTaskCounts: includeTaskCounts,
@@ -88,7 +88,7 @@ public final class OmniFocusBridgeService: OmniFocusService {
 
     public func listTags(page: PageRequest, statusFilter: String?, includeTaskCounts: Bool) async throws -> Page<TagItem> {
         guard cacheTTL > 0 else {
-            return try client.listTags(page: page, statusFilter: statusFilter, includeTaskCounts: includeTaskCounts)
+            return try await client.listTags(page: page, statusFilter: statusFilter, includeTaskCounts: includeTaskCounts)
         }
         let key = CacheKey.tags(
             page: page,
@@ -98,21 +98,21 @@ public final class OmniFocusBridgeService: OmniFocusService {
         if let cached = await cache.getTags(key: key) {
             return cached
         }
-        let pageResult = try client.listTags(page: page, statusFilter: statusFilter, includeTaskCounts: includeTaskCounts)
+        let pageResult = try await client.listTags(page: page, statusFilter: statusFilter, includeTaskCounts: includeTaskCounts)
         await cache.setTags(pageResult, key: key, ttl: cacheTTL)
         return pageResult
     }
 
     public func getTaskCounts(filter: TaskFilter) async throws -> TaskCounts {
-        return try client.getTaskCounts(filter: filter)
+        return try await client.getTaskCounts(filter: filter)
     }
 
     public func getProjectCounts(filter: TaskFilter) async throws -> ProjectCounts {
-        return try client.getProjectCounts(filter: filter)
+        return try await client.getProjectCounts(filter: filter)
     }
 
-    public func healthCheck() throws -> BridgeHealthResult {
-        let response = try client.ping()
+    public func healthCheck() async throws -> BridgeHealthResult {
+        let response = try await client.ping()
         return BridgeHealthResult(
             ok: response.ok,
             plugin: response.data?.plugin,
