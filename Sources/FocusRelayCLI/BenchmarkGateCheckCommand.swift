@@ -10,11 +10,12 @@ struct BenchmarkGateCheck: AsyncParsableCommand {
         aliases: ["benchmark_gate_check"]
     )
 
-    @Option(name: .customLong("tool"), help: "Gate scope: all, task-counts, list-tasks, or project-counts.")
+    @Option(name: .customLong("tool"), help: "Gate scope: all, task-counts, list-tasks, project-counts, list-projects, or list-tags.")
     var tool: GateScope = .all
 
     func run() async throws {
         let bridge = OmniFocusBridgeService()
+        let uncachedBridge = OmniFocusBridgeService(cacheTTL: 0)
         let jxa = OmniAutomationService()
         var checks: [GateCheck] = []
 
@@ -28,6 +29,8 @@ struct BenchmarkGateCheck: AsyncParsableCommand {
             checks.append(contentsOf: await listTaskParityChecks(bridge: bridge, jxa: jxa))
             checks.append(await projectCountsBridgeActiveContractCheck(using: bridge))
             checks.append(contentsOf: await projectCountParityChecks(bridge: bridge, jxa: jxa))
+            checks.append(contentsOf: await listProjectParityChecks(bridge: uncachedBridge, jxa: jxa))
+            checks.append(contentsOf: await listTagContractChecks(using: uncachedBridge))
         case .taskCounts:
             checks.append(contentsOf: await taskCountContractChecks(using: bridge))
             checks.append(contentsOf: await taskCountParityChecks(bridge: bridge, jxa: jxa))
@@ -36,6 +39,10 @@ struct BenchmarkGateCheck: AsyncParsableCommand {
         case .projectCounts:
             checks.append(await projectCountsBridgeActiveContractCheck(using: bridge))
             checks.append(contentsOf: await projectCountParityChecks(bridge: bridge, jxa: jxa))
+        case .listProjects:
+            checks.append(contentsOf: await listProjectParityChecks(bridge: uncachedBridge, jxa: jxa))
+        case .listTags:
+            checks.append(contentsOf: await listTagContractChecks(using: uncachedBridge))
         }
 
         let report = GateReport(
@@ -63,6 +70,8 @@ enum GateScope: String, ExpressibleByArgument {
     case taskCounts = "task-counts"
     case listTasks = "list-tasks"
     case projectCounts = "project-counts"
+    case listProjects = "list-projects"
+    case listTags = "list-tags"
 }
 
 private struct GateReport: Codable {
@@ -92,6 +101,19 @@ private struct GateListTaskScenario {
 private struct GateProjectCountScenario {
     let name: String
     let filter: TaskFilter
+}
+
+private struct GateListProjectScenario {
+    let name: String
+    let statusFilter: String?
+    let includeTaskCounts: Bool
+    let fields: [String]
+}
+
+private struct GateListTagScenario {
+    let name: String
+    let statusFilter: String?
+    let includeTaskCounts: Bool
 }
 
 private func checkBridgeHealth(using service: OmniFocusBridgeService) async -> GateCheck {
@@ -262,6 +284,122 @@ private func projectCountParityChecks(bridge: OmniFocusBridgeService, jxa: OmniA
             return GateCheck(name: "project_counts_parity_\(scenario.name)", ok: false, detail: error.localizedDescription)
         }
     }
+}
+
+private func listProjectParityChecks(bridge: OmniFocusBridgeService, jxa: OmniAutomationService) async -> [GateCheck] {
+    let scenarios = [
+        GateListProjectScenario(name: "active_minimal", statusFilter: "active", includeTaskCounts: false, fields: ["id", "name"]),
+        GateListProjectScenario(name: "active_counts", statusFilter: "active", includeTaskCounts: true, fields: ["id", "name"]),
+        GateListProjectScenario(name: "active_counts_stalled", statusFilter: "active", includeTaskCounts: true, fields: ["id", "name", "hasChildren", "nextTask", "containsSingletonActions", "isStalled"])
+    ]
+
+    return await scenarios.asyncMap { scenario in
+        do {
+            let first = try await retryAsync(operation: "bridge list-projects contract \(scenario.name) first") {
+                try await bridge.listProjects(
+                    page: PageRequest(limit: 50),
+                    statusFilter: scenario.statusFilter,
+                    includeTaskCounts: scenario.includeTaskCounts,
+                    reviewDueBefore: nil,
+                    reviewDueAfter: nil,
+                    reviewPerspective: false,
+                    completed: nil,
+                    completedBefore: nil,
+                    completedAfter: nil,
+                    fields: scenario.fields
+                )
+            }
+            let second = try await retryAsync(operation: "bridge list-projects contract \(scenario.name) second") {
+                try await bridge.listProjects(
+                    page: PageRequest(limit: 50),
+                    statusFilter: scenario.statusFilter,
+                    includeTaskCounts: scenario.includeTaskCounts,
+                    reviewDueBefore: nil,
+                    reviewDueAfter: nil,
+                    reviewPerspective: false,
+                    completed: nil,
+                    completedBefore: nil,
+                    completedAfter: nil,
+                    fields: scenario.fields
+                )
+            }
+            let ok = listProjectGatePagesMatch(first, second, fields: Set(scenario.fields), includeTaskCounts: scenario.includeTaskCounts)
+            return GateCheck(
+                name: "list_projects_contract_\(scenario.name)",
+                ok: ok,
+                detail: "returned=\(first.returnedCount) total=\(first.totalCount.map(String.init) ?? "nil") next=\(first.nextCursor ?? "nil")"
+            )
+        } catch {
+            return GateCheck(name: "list_projects_contract_\(scenario.name)", ok: false, detail: error.localizedDescription)
+        }
+    }
+}
+
+private func listTagContractChecks(using bridge: OmniFocusBridgeService) async -> [GateCheck] {
+    let scenarios = [
+        GateListTagScenario(name: "active_no_counts", statusFilter: "active", includeTaskCounts: false),
+        GateListTagScenario(name: "active_with_counts", statusFilter: "active", includeTaskCounts: true)
+    ]
+
+    return await scenarios.asyncMap { scenario in
+        do {
+            let first = try await retryAsync(operation: "bridge list-tags contract \(scenario.name) first") {
+                try await bridge.listTags(page: PageRequest(limit: 50), statusFilter: scenario.statusFilter, includeTaskCounts: scenario.includeTaskCounts)
+            }
+            let second = try await retryAsync(operation: "bridge list-tags contract \(scenario.name) second") {
+                try await bridge.listTags(page: PageRequest(limit: 50), statusFilter: scenario.statusFilter, includeTaskCounts: scenario.includeTaskCounts)
+            }
+            let pageOk = first.returnedCount == first.items.count
+                && (first.totalCount ?? 0) >= first.returnedCount
+                && first.returnedCount == second.returnedCount
+                && first.totalCount == second.totalCount
+                && first.nextCursor == second.nextCursor
+                && first.items.map(\.id) == second.items.map(\.id)
+            let countsOk = !scenario.includeTaskCounts || first.items.allSatisfy { $0.availableTasks != nil && $0.remainingTasks != nil && $0.totalTasks != nil }
+            return GateCheck(
+                name: "list_tags_contract_\(scenario.name)",
+                ok: pageOk && countsOk,
+                detail: "returned=\(first.returnedCount) total=\(first.totalCount.map(String.init) ?? "nil") next=\(first.nextCursor ?? "nil") counts_present=\(countsOk)"
+            )
+        } catch {
+            return GateCheck(name: "list_tags_contract_\(scenario.name)", ok: false, detail: error.localizedDescription)
+        }
+    }
+}
+
+private func listProjectGatePagesMatch(
+    _ lhs: Page<ProjectItem>,
+    _ rhs: Page<ProjectItem>,
+    fields: Set<String>,
+    includeTaskCounts: Bool
+) -> Bool {
+    guard lhs.totalCount == rhs.totalCount,
+          lhs.returnedCount == rhs.returnedCount,
+          lhs.nextCursor == rhs.nextCursor else {
+        return false
+    }
+    let lhsRows = lhs.items.map { listProjectGateSignature($0, fields: fields, includeTaskCounts: includeTaskCounts) }
+    let rhsRows = rhs.items.map { listProjectGateSignature($0, fields: fields, includeTaskCounts: includeTaskCounts) }
+    return lhsRows == rhsRows
+}
+
+private func listProjectGateSignature(
+    _ item: ProjectItem,
+    fields: Set<String>,
+    includeTaskCounts: Bool
+) -> String {
+    [
+        item.id,
+        fields.contains("hasChildren") ? String(describing: item.hasChildren) : "_",
+        fields.contains("nextTask") ? String(describing: item.nextTask?.id) : "_",
+        fields.contains("containsSingletonActions") ? String(describing: item.containsSingletonActions) : "_",
+        fields.contains("isStalled") ? String(describing: item.isStalled) : "_",
+        includeTaskCounts ? String(describing: item.availableTasks) : "_",
+        includeTaskCounts ? String(describing: item.remainingTasks) : "_",
+        includeTaskCounts ? String(describing: item.completedTasks) : "_",
+        includeTaskCounts ? String(describing: item.droppedTasks) : "_",
+        includeTaskCounts ? String(describing: item.totalTasks) : "_"
+    ].joined(separator: "|")
 }
 
 private func retryAsync<T>(operation: String, maxAttempts: Int = 2, delaySeconds: TimeInterval = 1.0, _ body: @escaping () async throws -> T) async throws -> T {

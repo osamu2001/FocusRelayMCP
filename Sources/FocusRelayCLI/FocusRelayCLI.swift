@@ -24,6 +24,9 @@ struct FocusRelayCLI: AsyncParsableCommand {
             BenchmarkTaskCounts.self,
             BenchmarkListTasks.self,
             BenchmarkProjectCounts.self,
+            BenchmarkListProjects.self,
+            BenchmarkListTags.self,
+            BenchmarkBridgeHealth.self,
             BenchmarkGateCheck.self
         ]
     )
