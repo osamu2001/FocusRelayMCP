@@ -284,7 +284,7 @@ private func listTaskBenchCall(
             try? await Task.sleep(nanoseconds: UInt64(cooldownMS) * 1_000_000)
         }
         if timeout {
-            let diagnostic = captureListTaskTimeoutDiagnostic(
+            let diagnostic = await captureListTaskTimeoutDiagnostic(
                 transport: transport,
                 scenario: scenario,
                 phase: phase,
@@ -322,7 +322,7 @@ private func runListTaskTimeoutRecoveryGate() async {
         try? await Task.sleep(nanoseconds: UInt64(recoveryMs) * 1_000_000)
     }
     // Lightweight readiness probe before resuming to reduce timeout cascades.
-    _ = try? OmniFocusBridgeService().healthCheck()
+    _ = try? await OmniFocusBridgeService().healthCheck()
 }
 
 private func ingestListTaskEvent(_ event: ListTaskEvent, into stats: inout [String: [String: ListTaskStats]]) {
@@ -428,7 +428,7 @@ private func captureListTaskTimeoutDiagnostic(
     callIndex: Int,
     latencyMs: Double,
     errorMessage: String
-) -> ListTaskTimeoutDiagnostic {
+) async -> ListTaskTimeoutDiagnostic {
     let requestID = listTaskExtractRequestID(from: errorMessage)
     let baseURL = listTaskDefaultIPCBaseURL()
     let requestsURL = baseURL.appendingPathComponent("requests", isDirectory: true)
@@ -450,7 +450,7 @@ private func captureListTaskTimeoutDiagnostic(
     let benchmarkPID = ProcessInfo.processInfo.processIdentifier
     let bridgeHealth: ListTaskTimeoutBridgeHealthSnapshot?
     if transport == "plugin" {
-        if let result = try? OmniFocusBridgeService().healthCheck() {
+        if let result = try? await OmniFocusBridgeService().healthCheck() {
             bridgeHealth = ListTaskTimeoutBridgeHealthSnapshot(
                 ok: result.ok,
                 detail: "plugin=\(result.plugin ?? "unknown") version=\(result.version ?? "unknown")"

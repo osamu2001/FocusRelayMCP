@@ -114,7 +114,7 @@ private func healthBenchCall(
     callIndex += 1
     let started = Date()
     do {
-        let result = try service.healthCheck()
+        let result = try await service.healthCheck()
         let elapsed = Date().timeIntervalSince(started) * 1000
         let timing = result.timingMs
         let overhead = timing.map { max(0, elapsed - Double($0)) }

@@ -187,6 +187,67 @@ func cleanupStaleFilesKeepsFreshIPCArtifacts() throws {
     #expect(fileManager.fileExists(atPath: freshLock.path))
 }
 
+@Test
+func waitForResponseReadsDelayedResponseFile() async throws {
+    let tempRoot = try makeTemporaryIPCBaseURL()
+    defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+    let paths = IPCPaths(baseURL: tempRoot)
+    let fileManager = FileManager.default
+    try [paths.requestsURL, paths.responsesURL, paths.locksURL].forEach {
+        try fileManager.createDirectory(at: $0, withIntermediateDirectories: true)
+    }
+
+    let requestID = UUID().uuidString
+    let responseURL = paths.responsesURL.appendingPathComponent("\(requestID).json")
+    let requestURL = paths.requestsURL.appendingPathComponent("\(requestID).json")
+    let lockURL = paths.locksURL.appendingPathComponent("\(requestID).lock")
+    try Data("{}".utf8).write(to: requestURL)
+
+    let client = BridgeClient(
+        paths: paths,
+        fileManager: fileManager,
+        staleInterval: 600,
+        configuration: BridgeClientConfiguration(
+            responseTimeout: 0.5,
+            responsePollInterval: 0.01,
+            dispatchTransport: .jxaEvaluate,
+            dispatchTimeout: 1
+        )
+    )
+
+    Task {
+        try? await Task.sleep(nanoseconds: 20_000_000)
+        let response = BridgeResponse(
+            schemaVersion: 1,
+            requestId: requestID,
+            ok: true,
+            data: BridgePing(ok: true, plugin: "FocusRelayBridge", version: "test"),
+            error: nil,
+            timingMs: 12,
+            warnings: nil
+        )
+        let encoder = JSONEncoder()
+        let data = try? encoder.encode(response)
+        if let data {
+            try? data.write(to: responseURL, options: .atomic)
+        }
+    }
+
+    let response: BridgeResponse<BridgePing> = try await client.waitForResponse(
+        at: responseURL,
+        requestURL: requestURL,
+        lockURL: lockURL,
+        requestId: requestID,
+        timeout: 0.5,
+        responseType: BridgePing.self
+    )
+
+    #expect(response.ok)
+    #expect(response.data?.plugin == "FocusRelayBridge")
+    #expect(response.data?.version == "test")
+}
+
 private func makeTemporaryIPCBaseURL() throws -> URL {
     let root = FileManager.default.temporaryDirectory
         .appendingPathComponent(UUID().uuidString, isDirectory: true)

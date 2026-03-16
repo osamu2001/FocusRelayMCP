@@ -31,19 +31,19 @@ func listInboxTasksLive() async throws {
 }
 
 @Test
-func bridgeHealthCheckLive() throws {
+func bridgeHealthCheckLive() async throws {
     let env = ProcessInfo.processInfo.environment
     guard env["FOCUS_RELAY_BRIDGE_TESTS"] == "1" else {
         return
     }
 
     let client = BridgeClient()
-    let response = try client.ping()
+    let response = try await client.ping()
     #expect(response.ok)
 }
 
 @Test
-func bridgeListInboxLive() throws {
+func bridgeListInboxLive() async throws {
     let env = ProcessInfo.processInfo.environment
     guard env["FOCUS_RELAY_BRIDGE_TESTS"] == "1" else {
         return
@@ -52,12 +52,12 @@ func bridgeListInboxLive() throws {
     let client = BridgeClient()
     let filter = TaskFilter(inboxOnly: true)
     let page = PageRequest(limit: 5)
-    let result = try client.listTasks(filter: filter, page: page, fields: ["id", "name"])
+    let result = try await client.listTasks(filter: filter, page: page, fields: ["id", "name"])
     #expect(result.items.count <= 5)
 }
 
 @Test
-func bridgeListInboxPagingCursorAdvancesLive() throws {
+func bridgeListInboxPagingCursorAdvancesLive() async throws {
     let env = ProcessInfo.processInfo.environment
     guard env["FOCUS_RELAY_BRIDGE_TESTS"] == "1" else {
         return
@@ -65,25 +65,25 @@ func bridgeListInboxPagingCursorAdvancesLive() throws {
 
     let client = BridgeClient()
     let filter = TaskFilter(inboxOnly: true)
-    let first = try client.listTasks(filter: filter, page: PageRequest(limit: 5), fields: ["id", "name"])
+    let first = try await client.listTasks(filter: filter, page: PageRequest(limit: 5), fields: ["id", "name"])
 
     guard first.items.count == 5, let cursor = first.nextCursor else {
         return
     }
 
-    let second = try client.listTasks(filter: filter, page: PageRequest(limit: 5, cursor: cursor), fields: ["id", "name"])
+    let second = try await client.listTasks(filter: filter, page: PageRequest(limit: 5, cursor: cursor), fields: ["id", "name"])
     #expect(!second.items.isEmpty, "Expected non-empty second page when first page is full and returned nextCursor")
 }
 
 @Test
-func bridgeTaskCountsLive() throws {
+func bridgeTaskCountsLive() async throws {
     let env = ProcessInfo.processInfo.environment
     guard env["FOCUS_RELAY_BRIDGE_TESTS"] == "1" else {
         return
     }
 
     let client = BridgeClient()
-    let counts = try client.getTaskCounts(filter: TaskFilter(inboxOnly: true))
+    let counts = try await client.getTaskCounts(filter: TaskFilter(inboxOnly: true))
     #expect(counts.total >= 0)
 }
 
@@ -197,7 +197,7 @@ func bridgeAndJXAProjectCountsParityLive() async throws {
 }
 
 @Test
-func bridgeInboxViewCountsMatchListTasksLive() throws {
+func bridgeInboxViewCountsMatchListTasksLive() async throws {
     let env = ProcessInfo.processInfo.environment
     guard env["FOCUS_RELAY_BRIDGE_TESTS"] == "1" else {
         return
@@ -207,14 +207,14 @@ func bridgeInboxViewCountsMatchListTasksLive() throws {
     let views = ["remaining", "available", "everything"]
     for view in views {
         let filter = TaskFilter(inboxView: view, inboxOnly: true, includeTotalCount: true)
-        let counts = try client.getTaskCounts(filter: filter)
-        let page = try client.listTasks(filter: filter, page: PageRequest(limit: 50), fields: ["id"])
+        let counts = try await client.getTaskCounts(filter: filter)
+        let page = try await client.listTasks(filter: filter, page: PageRequest(limit: 50), fields: ["id"])
         #expect(counts.total == (page.totalCount ?? -1))
     }
 }
 
 @Test
-func bridgeTaskCountsRespectsProjectViewLive() throws {
+func bridgeTaskCountsRespectsProjectViewLive() async throws {
     let env = ProcessInfo.processInfo.environment
     guard env["FOCUS_RELAY_BRIDGE_TESTS"] == "1" else {
         return
@@ -228,12 +228,12 @@ func bridgeTaskCountsRespectsProjectViewLive() throws {
         includeTotalCount: true
     )
 
-    let counts = try client.getTaskCounts(filter: filter)
+    let counts = try await client.getTaskCounts(filter: filter)
     #expect(counts.total >= 0)
 }
 
 @Test
-func bridgeCompletedInboxFilterDoesNotDefaultToAvailableOnlyLive() throws {
+func bridgeCompletedInboxFilterDoesNotDefaultToAvailableOnlyLive() async throws {
     let env = ProcessInfo.processInfo.environment
     guard env["FOCUS_RELAY_BRIDGE_TESTS"] == "1" else {
         return
@@ -242,16 +242,16 @@ func bridgeCompletedInboxFilterDoesNotDefaultToAvailableOnlyLive() throws {
     let client = BridgeClient()
 
     // Get a stable baseline of completed inbox items.
-    let everythingCounts = try client.getTaskCounts(filter: TaskFilter(inboxView: "everything", inboxOnly: true))
+    let everythingCounts = try await client.getTaskCounts(filter: TaskFilter(inboxView: "everything", inboxOnly: true))
     guard everythingCounts.completed > 0 else {
         return
     }
 
     // This query previously defaulted availableOnly=true and incorrectly returned zero.
-    let completedDefault = try client.getTaskCounts(filter: TaskFilter(completed: true, inboxOnly: true))
+    let completedDefault = try await client.getTaskCounts(filter: TaskFilter(completed: true, inboxOnly: true))
     #expect(completedDefault.total == everythingCounts.completed)
 
-    let completedPage = try client.listTasks(
+    let completedPage = try await client.listTasks(
         filter: TaskFilter(completed: true, inboxOnly: true, includeTotalCount: true),
         page: PageRequest(limit: 100),
         fields: ["id", "completed", "completionDate"]
@@ -260,7 +260,7 @@ func bridgeCompletedInboxFilterDoesNotDefaultToAvailableOnlyLive() throws {
 }
 
 @Test
-func bridgeCompletedFalseRetainsAvailableDefaultLive() throws {
+func bridgeCompletedFalseRetainsAvailableDefaultLive() async throws {
     let env = ProcessInfo.processInfo.environment
     guard env["FOCUS_RELAY_BRIDGE_TESTS"] == "1" else {
         return
@@ -268,19 +268,19 @@ func bridgeCompletedFalseRetainsAvailableDefaultLive() throws {
 
     let client = BridgeClient()
     let filter = TaskFilter(completed: false, inboxOnly: true, includeTotalCount: true)
-    let page = try client.listTasks(filter: filter, page: PageRequest(limit: 100), fields: ["id", "completed", "available"])
+    let page = try await client.listTasks(filter: filter, page: PageRequest(limit: 100), fields: ["id", "completed", "available"])
 
     #expect(page.items.allSatisfy { $0.completed == false })
     #expect(page.items.allSatisfy { $0.available == true })
 
-    let counts = try client.getTaskCounts(filter: filter)
+    let counts = try await client.getTaskCounts(filter: filter)
     if let totalCount = page.totalCount {
         #expect(counts.total == totalCount)
     }
 }
 
 @Test
-func bridgeCompletedTasksRespectDateRangeAndSortLive() throws {
+func bridgeCompletedTasksRespectDateRangeAndSortLive() async throws {
     let env = ProcessInfo.processInfo.environment
     guard env["FOCUS_RELAY_BRIDGE_TESTS"] == "1" else {
         return
@@ -292,7 +292,7 @@ func bridgeCompletedTasksRespectDateRangeAndSortLive() throws {
         completedAfter: Date(timeIntervalSince1970: 0),
         includeTotalCount: true
     )
-    let page = try client.listTasks(
+    let page = try await client.listTasks(
         filter: filter,
         page: PageRequest(limit: 100),
         fields: ["id", "completed", "completionDate"]
@@ -311,7 +311,7 @@ func bridgeCompletedTasksRespectDateRangeAndSortLive() throws {
 }
 
 @Test
-func bridgeCompletedInboxTasksRespectDateRangeAndSortLive() throws {
+func bridgeCompletedInboxTasksRespectDateRangeAndSortLive() async throws {
     let env = ProcessInfo.processInfo.environment
     guard env["FOCUS_RELAY_BRIDGE_TESTS"] == "1" else {
         return
@@ -324,7 +324,7 @@ func bridgeCompletedInboxTasksRespectDateRangeAndSortLive() throws {
         inboxOnly: true,
         includeTotalCount: true
     )
-    let page = try client.listTasks(
+    let page = try await client.listTasks(
         filter: filter,
         page: PageRequest(limit: 100),
         fields: ["id", "completed", "completionDate"]
@@ -343,29 +343,29 @@ func bridgeCompletedInboxTasksRespectDateRangeAndSortLive() throws {
 }
 
 @Test
-func bridgeInboxViewWithoutInboxOnlyIsNotInboxScopedLive() throws {
+func bridgeInboxViewWithoutInboxOnlyIsNotInboxScopedLive() async throws {
     let env = ProcessInfo.processInfo.environment
     guard env["FOCUS_RELAY_BRIDGE_TESTS"] == "1" else {
         return
     }
 
     let client = BridgeClient()
-    let inboxScoped = try client.getTaskCounts(filter: TaskFilter(inboxView: "available", inboxOnly: true))
-    let globalView = try client.getTaskCounts(filter: TaskFilter(inboxView: "available"))
+    let inboxScoped = try await client.getTaskCounts(filter: TaskFilter(inboxView: "available", inboxOnly: true))
+    let globalView = try await client.getTaskCounts(filter: TaskFilter(inboxView: "available"))
 
     // Contract for current behavior: inboxView controls view mode, inboxOnly controls scope.
     #expect(globalView.total >= inboxScoped.total)
 }
 
 @Test
-func bridgeProjectCountsLive() throws {
+func bridgeProjectCountsLive() async throws {
     let env = ProcessInfo.processInfo.environment
     guard env["FOCUS_RELAY_BRIDGE_TESTS"] == "1" else {
         return
     }
 
     let client = BridgeClient()
-    let counts = try client.getProjectCounts(filter: TaskFilter(projectView: "remaining"))
+    let counts = try await client.getProjectCounts(filter: TaskFilter(projectView: "remaining"))
     #expect(counts.projects >= 0)
     #expect(counts.actions >= 0)
 }
@@ -415,7 +415,7 @@ func jxaProjectCountsActiveMatchesListTasksTotalLive() async throws {
 }
 
 @Test
-func bridgeListTasksRespectsProjectViewLive() throws {
+func bridgeListTasksRespectsProjectViewLive() async throws {
     let env = ProcessInfo.processInfo.environment
     guard env["FOCUS_RELAY_BRIDGE_TESTS"] == "1" else {
         return
@@ -428,23 +428,23 @@ func bridgeListTasksRespectsProjectViewLive() throws {
     let client = BridgeClient()
     let filter = TaskFilter(completed: false, availableOnly: false, project: onHoldProjectID, projectView: "onHold")
     let page = PageRequest(limit: 5)
-    let result = try client.listTasks(filter: filter, page: page, fields: ["id", "name"])
+    let result = try await client.listTasks(filter: filter, page: page, fields: ["id", "name"])
     #expect(result.items.count >= 0)
 
     let activeFilter = TaskFilter(completed: false, availableOnly: false, project: onHoldProjectID, projectView: "active")
-    let activeResult = try client.listTasks(filter: activeFilter, page: page, fields: ["id", "name"])
+    let activeResult = try await client.listTasks(filter: activeFilter, page: page, fields: ["id", "name"])
     #expect(activeResult.items.isEmpty)
 }
 
 @Test
-func bridgeProjectsPagingLive() throws {
+func bridgeProjectsPagingLive() async throws {
     let env = ProcessInfo.processInfo.environment
     guard env["FOCUS_RELAY_BRIDGE_TESTS"] == "1" else {
         return
     }
 
     let client = BridgeClient()
-    let first = try client.listProjects(
+    let first = try await client.listProjects(
         page: PageRequest(limit: 2),
         statusFilter: "active",
         includeTaskCounts: false,
@@ -459,7 +459,7 @@ func bridgeProjectsPagingLive() throws {
     #expect(first.items.count <= 2)
     #expect((first.totalCount ?? 0) >= first.items.count)
     if let cursor = first.nextCursor {
-        let second = try client.listProjects(
+        let second = try await client.listProjects(
             page: PageRequest(limit: 2, cursor: cursor),
             statusFilter: "active",
             includeTaskCounts: false,
@@ -476,7 +476,7 @@ func bridgeProjectsPagingLive() throws {
 }
 
 @Test
-func bridgeProjectTaskCountsIncludedLive() throws {
+func bridgeProjectTaskCountsIncludedLive() async throws {
     let env = ProcessInfo.processInfo.environment
     guard env["FOCUS_RELAY_BRIDGE_TESTS"] == "1" else {
         return
@@ -484,7 +484,7 @@ func bridgeProjectTaskCountsIncludedLive() throws {
 
     let client = BridgeClient()
     // Emulate server default field behavior (id/name) while includeTaskCounts is enabled.
-    let page = try client.listProjects(
+    let page = try await client.listProjects(
         page: PageRequest(limit: 10),
         statusFilter: "active",
         includeTaskCounts: true,
@@ -509,14 +509,14 @@ func bridgeProjectTaskCountsIncludedLive() throws {
 }
 
 @Test
-func bridgeProjectDerivedFieldsIncludedLive() throws {
+func bridgeProjectDerivedFieldsIncludedLive() async throws {
     let env = ProcessInfo.processInfo.environment
     guard env["FOCUS_RELAY_BRIDGE_TESTS"] == "1" else {
         return
     }
 
     let client = BridgeClient()
-    let page = try client.listProjects(
+    let page = try await client.listProjects(
         page: PageRequest(limit: 10),
         statusFilter: "active",
         includeTaskCounts: true,
@@ -546,36 +546,36 @@ func bridgeProjectDerivedFieldsIncludedLive() throws {
 }
 
 @Test
-func bridgeTagsPagingLive() throws {
+func bridgeTagsPagingLive() async throws {
     let env = ProcessInfo.processInfo.environment
     guard env["FOCUS_RELAY_BRIDGE_TESTS"] == "1" else {
         return
     }
 
     let client = BridgeClient()
-    let first = try client.listTags(page: PageRequest(limit: 2), statusFilter: nil, includeTaskCounts: false)
+    let first = try await client.listTags(page: PageRequest(limit: 2), statusFilter: nil, includeTaskCounts: false)
     #expect(first.items.count <= 2)
     #expect((first.totalCount ?? 0) >= first.items.count)
     if let cursor = first.nextCursor {
-        let second = try client.listTags(page: PageRequest(limit: 2, cursor: cursor), statusFilter: nil, includeTaskCounts: false)
+        let second = try await client.listTags(page: PageRequest(limit: 2, cursor: cursor), statusFilter: nil, includeTaskCounts: false)
         #expect(second.items.count <= 2)
     }
 }
 
 @Test
-func bridgeTagTaskCountsShapeLive() throws {
+func bridgeTagTaskCountsShapeLive() async throws {
     let env = ProcessInfo.processInfo.environment
     guard env["FOCUS_RELAY_BRIDGE_TESTS"] == "1" else {
         return
     }
 
     let client = BridgeClient()
-    let withoutCounts = try client.listTags(page: PageRequest(limit: 10), statusFilter: "active", includeTaskCounts: false)
+    let withoutCounts = try await client.listTags(page: PageRequest(limit: 10), statusFilter: "active", includeTaskCounts: false)
     #expect(withoutCounts.items.allSatisfy { $0.availableTasks == nil })
     #expect(withoutCounts.items.allSatisfy { $0.remainingTasks == nil })
     #expect(withoutCounts.items.allSatisfy { $0.totalTasks == nil })
 
-    let withCounts = try client.listTags(page: PageRequest(limit: 10), statusFilter: "active", includeTaskCounts: true)
+    let withCounts = try await client.listTags(page: PageRequest(limit: 10), statusFilter: "active", includeTaskCounts: true)
     guard !withCounts.items.isEmpty else {
         return
     }
@@ -588,7 +588,7 @@ func bridgeTagTaskCountsShapeLive() throws {
 // MARK: - Status Edge Case Tests
 
 @Test
-func bridgeTasksInOnHoldProjectNotAvailableLive() throws {
+func bridgeTasksInOnHoldProjectNotAvailableLive() async throws {
     let env = ProcessInfo.processInfo.environment
     guard env["FOCUS_RELAY_BRIDGE_TESTS"] == "1" else {
         return
@@ -607,14 +607,14 @@ func bridgeTasksInOnHoldProjectNotAvailableLive() throws {
         projectView: "onHold"
     )
     let page = PageRequest(limit: 50)
-    let result = try client.listTasks(filter: filter, page: page, fields: ["id", "name", "available"])
+    let result = try await client.listTasks(filter: filter, page: page, fields: ["id", "name", "available"])
     
     // No tasks in an on-hold project should be available
     #expect(result.items.isEmpty, "Tasks in on-hold projects should not be available")
 }
 
 @Test
-func bridgeTasksInDroppedProjectNotAvailableLive() throws {
+func bridgeTasksInDroppedProjectNotAvailableLive() async throws {
     let env = ProcessInfo.processInfo.environment
     guard env["FOCUS_RELAY_BRIDGE_TESTS"] == "1" else {
         return
@@ -633,14 +633,14 @@ func bridgeTasksInDroppedProjectNotAvailableLive() throws {
         projectView: "dropped"
     )
     let page = PageRequest(limit: 50)
-    let result = try client.listTasks(filter: filter, page: page, fields: ["id", "name", "available"])
+    let result = try await client.listTasks(filter: filter, page: page, fields: ["id", "name", "available"])
     
     // No tasks in a dropped project should be available
     #expect(result.items.isEmpty, "Tasks in dropped projects should not be available")
 }
 
 @Test
-func bridgeTasksInDoneProjectNotAvailableLive() throws {
+func bridgeTasksInDoneProjectNotAvailableLive() async throws {
     let env = ProcessInfo.processInfo.environment
     guard env["FOCUS_RELAY_BRIDGE_TESTS"] == "1" else {
         return
@@ -659,14 +659,14 @@ func bridgeTasksInDoneProjectNotAvailableLive() throws {
         projectView: "done"
     )
     let page = PageRequest(limit: 50)
-    let result = try client.listTasks(filter: filter, page: page, fields: ["id", "name", "available"])
+    let result = try await client.listTasks(filter: filter, page: page, fields: ["id", "name", "available"])
     
     // No tasks in a done project should be available
     #expect(result.items.isEmpty, "Tasks in done projects should not be available")
 }
 
 @Test
-func bridgeChildTasksWithCompletedParentNotAvailableLive() throws {
+func bridgeChildTasksWithCompletedParentNotAvailableLive() async throws {
     let env = ProcessInfo.processInfo.environment
     guard env["FOCUS_RELAY_BRIDGE_TESTS"] == "1" else {
         return
@@ -678,13 +678,13 @@ func bridgeChildTasksWithCompletedParentNotAvailableLive() throws {
 
     let client = BridgeClient()
     // Get the parent task first
-    let parentTask = try client.getTask(id: completedParentTaskID, fields: ["id", "name", "completed"])
+    let parentTask = try await client.getTask(id: completedParentTaskID, fields: ["id", "name", "completed"])
     #expect(parentTask.completed == true, "Parent task should be completed for this test")
     
     // Query available tasks - children of completed parents should not appear
     let filter = TaskFilter(availableOnly: true)
     let page = PageRequest(limit: 100)
-    let result = try client.listTasks(filter: filter, page: page, fields: ["id", "name", "available"])
+    let result = try await client.listTasks(filter: filter, page: page, fields: ["id", "name", "available"])
     
     // Ensure no child tasks of the completed parent are in available results
     // This is a heuristic - we can't easily query children directly
@@ -697,7 +697,7 @@ func bridgeChildTasksWithCompletedParentNotAvailableLive() throws {
 }
 
 @Test
-func bridgeTaskStatusValuesAreValidLive() throws {
+func bridgeTaskStatusValuesAreValidLive() async throws {
     let env = ProcessInfo.processInfo.environment
     guard env["FOCUS_RELAY_BRIDGE_TESTS"] == "1" else {
         return
@@ -707,7 +707,7 @@ func bridgeTaskStatusValuesAreValidLive() throws {
     // Query a sample of tasks and verify status values
     let filter = TaskFilter(completed: nil, inboxOnly: false)
     let page = PageRequest(limit: 20)
-    let result = try client.listTasks(filter: filter, page: page, fields: ["id", "name", "taskStatus", "available", "completed"])
+    let result = try await client.listTasks(filter: filter, page: page, fields: ["id", "name", "taskStatus", "available", "completed"])
     
     // Verify that available tasks have valid status
     for task in result.items {
@@ -719,7 +719,7 @@ func bridgeTaskStatusValuesAreValidLive() throws {
 }
 
 @Test
-func bridgeAvailableTasksCountConsistencyLive() throws {
+func bridgeAvailableTasksCountConsistencyLive() async throws {
     let env = ProcessInfo.processInfo.environment
     guard env["FOCUS_RELAY_BRIDGE_TESTS"] == "1" else {
         return
@@ -728,10 +728,10 @@ func bridgeAvailableTasksCountConsistencyLive() throws {
     let client = BridgeClient()
     
     // Get counts
-    let counts = try client.getTaskCounts(filter: TaskFilter(availableOnly: true))
+    let counts = try await client.getTaskCounts(filter: TaskFilter(availableOnly: true))
     
     // Get actual tasks
-    let page = try client.listTasks(
+    let page = try await client.listTasks(
         filter: TaskFilter(availableOnly: true, includeTotalCount: true),
         page: PageRequest(limit: 1000),
         fields: ["id"]
@@ -747,15 +747,15 @@ func bridgeAvailableTasksCountConsistencyLive() throws {
 }
 
 @Test
-func bridgeDefaultTaskCountsMatchDefaultListTasksLive() throws {
+func bridgeDefaultTaskCountsMatchDefaultListTasksLive() async throws {
     let env = ProcessInfo.processInfo.environment
     guard env["FOCUS_RELAY_BRIDGE_TESTS"] == "1" else {
         return
     }
 
     let client = BridgeClient()
-    let counts = try client.getTaskCounts(filter: TaskFilter())
-    let page = try client.listTasks(
+    let counts = try await client.getTaskCounts(filter: TaskFilter())
+    let page = try await client.listTasks(
         filter: TaskFilter(includeTotalCount: true),
         page: PageRequest(limit: 50),
         fields: ["id"]
@@ -769,15 +769,15 @@ func bridgeDefaultTaskCountsMatchDefaultListTasksLive() throws {
 }
 
 @Test
-func bridgeCompletedTaskCountsMatchCompletedListTasksLive() throws {
+func bridgeCompletedTaskCountsMatchCompletedListTasksLive() async throws {
     let env = ProcessInfo.processInfo.environment
     guard env["FOCUS_RELAY_BRIDGE_TESTS"] == "1" else {
         return
     }
 
     let client = BridgeClient()
-    let counts = try client.getTaskCounts(filter: TaskFilter(completed: true))
-    let page = try client.listTasks(
+    let counts = try await client.getTaskCounts(filter: TaskFilter(completed: true))
+    let page = try await client.listTasks(
         filter: TaskFilter(completed: true, includeTotalCount: true),
         page: PageRequest(limit: 50),
         fields: ["id", "completed"]
@@ -790,14 +790,14 @@ func bridgeCompletedTaskCountsMatchCompletedListTasksLive() throws {
 }
 
 @Test
-func bridgePlannedDateFieldCanBeRequestedLive() throws {
+func bridgePlannedDateFieldCanBeRequestedLive() async throws {
     let env = ProcessInfo.processInfo.environment
     guard env["FOCUS_RELAY_BRIDGE_TESTS"] == "1" else {
         return
     }
 
     let client = BridgeClient()
-    let page = try client.listTasks(
+    let page = try await client.listTasks(
         filter: TaskFilter(includeTotalCount: true),
         page: PageRequest(limit: 20),
         fields: ["id", "name", "plannedDate"]
@@ -809,7 +809,7 @@ func bridgePlannedDateFieldCanBeRequestedLive() throws {
 }
 
 @Test
-func bridgePlannedDateFiltersReturnOnlyPlannedTasksLive() throws {
+func bridgePlannedDateFiltersReturnOnlyPlannedTasksLive() async throws {
     let env = ProcessInfo.processInfo.environment
     guard env["FOCUS_RELAY_BRIDGE_TESTS"] == "1" else {
         return
@@ -820,7 +820,7 @@ func bridgePlannedDateFiltersReturnOnlyPlannedTasksLive() throws {
         plannedAfter: Date(timeIntervalSince1970: 0),
         includeTotalCount: true
     )
-    let page = try client.listTasks(
+    let page = try await client.listTasks(
         filter: filter,
         page: PageRequest(limit: 50),
         fields: ["id", "name", "plannedDate"]

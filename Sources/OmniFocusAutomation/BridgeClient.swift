@@ -31,7 +31,7 @@ final class BridgeClient: @unchecked Sendable {
         self.decoder = decoder
     }
 
-    func listTasks(filter: TaskFilter, page: PageRequest, fields: [String]?) throws -> Page<TaskItem> {
+    func listTasks(filter: TaskFilter, page: PageRequest, fields: [String]?) async throws -> Page<TaskItem> {
         let requestId = UUID().uuidString
         let request = BridgeRequest(
             schemaVersion: 1,
@@ -47,7 +47,7 @@ final class BridgeClient: @unchecked Sendable {
             page: page
         )
 
-        let response: BridgeResponse<Page<TaskItemPayload>> = try sendRequest(request, responseType: Page<TaskItemPayload>.self)
+        let response: BridgeResponse<Page<TaskItemPayload>> = try await sendRequest(request, responseType: Page<TaskItemPayload>.self)
 
         if response.ok, let payloadPage = response.data {
             let items = payloadPage.items.map { payload in
@@ -76,7 +76,7 @@ final class BridgeClient: @unchecked Sendable {
         throw AutomationError.executionFailed(message)
     }
 
-    func ping() throws -> BridgeResponse<BridgePing> {
+    func ping() async throws -> BridgeResponse<BridgePing> {
         let requestId = UUID().uuidString
         let request = BridgeRequest(
             schemaVersion: 1,
@@ -92,7 +92,7 @@ final class BridgeClient: @unchecked Sendable {
             page: nil
         )
 
-        return try sendRequest(request, responseType: BridgePing.self)
+        return try await sendRequest(request, responseType: BridgePing.self)
     }
 
     func listProjects(
@@ -106,7 +106,7 @@ final class BridgeClient: @unchecked Sendable {
         completedBefore: Date?,
         completedAfter: Date?,
         fields: [String]?
-    ) throws -> Page<ProjectItem> {
+    ) async throws -> Page<ProjectItem> {
         let requestId = UUID().uuidString
         let projectFilter = ProjectFilter(
             statusFilter: statusFilter,
@@ -132,7 +132,7 @@ final class BridgeClient: @unchecked Sendable {
             page: page
         )
 
-        let response: BridgeResponse<Page<ProjectItemPayload>> = try sendRequest(request, responseType: Page<ProjectItemPayload>.self)
+        let response: BridgeResponse<Page<ProjectItemPayload>> = try await sendRequest(request, responseType: Page<ProjectItemPayload>.self)
         if response.ok, let payloadPage = response.data {
             let items = payloadPage.items.map { payload in
                 let nextTask = payload.nextTask.map { ProjectTaskSummary(id: $0.id ?? "", name: $0.name ?? "") }
@@ -165,7 +165,7 @@ final class BridgeClient: @unchecked Sendable {
         throw AutomationError.executionFailed(message)
     }
 
-    func listTags(page: PageRequest, statusFilter: String?, includeTaskCounts: Bool) throws -> Page<TagItem> {
+    func listTags(page: PageRequest, statusFilter: String?, includeTaskCounts: Bool) async throws -> Page<TagItem> {
         let requestId = UUID().uuidString
         let tagFilter = TagFilter(statusFilter: statusFilter, includeTaskCounts: includeTaskCounts)
         let request = BridgeRequest(
@@ -182,7 +182,7 @@ final class BridgeClient: @unchecked Sendable {
             page: page
         )
 
-        let response: BridgeResponse<Page<TagItemPayload>> = try sendRequest(request, responseType: Page<TagItemPayload>.self)
+        let response: BridgeResponse<Page<TagItemPayload>> = try await sendRequest(request, responseType: Page<TagItemPayload>.self)
         if response.ok, let payloadPage = response.data {
             let items = payloadPage.items.map { payload in
                 TagItem(
@@ -201,7 +201,7 @@ final class BridgeClient: @unchecked Sendable {
         throw AutomationError.executionFailed(message)
     }
 
-    func getTask(id: String, fields: [String]?) throws -> TaskItem {
+    func getTask(id: String, fields: [String]?) async throws -> TaskItem {
         let requestId = UUID().uuidString
         let request = BridgeRequest(
             schemaVersion: 1,
@@ -217,7 +217,7 @@ final class BridgeClient: @unchecked Sendable {
             page: nil
         )
 
-        let response: BridgeResponse<TaskItemPayload> = try sendRequest(request, responseType: TaskItemPayload.self)
+        let response: BridgeResponse<TaskItemPayload> = try await sendRequest(request, responseType: TaskItemPayload.self)
         if response.ok, let payload = response.data {
             return TaskItem(
                 id: payload.id ?? "",
@@ -242,7 +242,7 @@ final class BridgeClient: @unchecked Sendable {
         throw AutomationError.executionFailed(message)
     }
 
-    func getTaskCounts(filter: TaskFilter) throws -> TaskCounts {
+    func getTaskCounts(filter: TaskFilter) async throws -> TaskCounts {
         let requestId = UUID().uuidString
         let request = BridgeRequest(
             schemaVersion: 1,
@@ -258,7 +258,7 @@ final class BridgeClient: @unchecked Sendable {
             page: nil
         )
 
-        let response: BridgeResponse<TaskCounts> = try sendRequest(request, responseType: TaskCounts.self)
+        let response: BridgeResponse<TaskCounts> = try await sendRequest(request, responseType: TaskCounts.self)
         if response.ok, let counts = response.data {
             return counts
         }
@@ -267,7 +267,7 @@ final class BridgeClient: @unchecked Sendable {
         throw AutomationError.executionFailed(message)
     }
 
-    func getProjectCounts(filter: TaskFilter) throws -> ProjectCounts {
+    func getProjectCounts(filter: TaskFilter) async throws -> ProjectCounts {
         let requestId = UUID().uuidString
         let request = BridgeRequest(
             schemaVersion: 1,
@@ -283,7 +283,7 @@ final class BridgeClient: @unchecked Sendable {
             page: nil
         )
 
-        let response: BridgeResponse<ProjectCounts> = try sendRequest(request, responseType: ProjectCounts.self)
+        let response: BridgeResponse<ProjectCounts> = try await sendRequest(request, responseType: ProjectCounts.self)
         if response.ok, let counts = response.data {
             return counts
         }
@@ -366,7 +366,7 @@ final class BridgeClient: @unchecked Sendable {
         throw AutomationError.executionFailed("Bridge dispatch failed: \(result.error ?? "unknown dispatch error")")
     }
 
-    private func sendRequest<T: Decodable>(_ request: BridgeRequest, responseType: T.Type) throws -> BridgeResponse<T> {
+    private func sendRequest<T: Decodable>(_ request: BridgeRequest, responseType: T.Type) async throws -> BridgeResponse<T> {
         try ensureDirectories()
         let responseURL = paths.responsesURL.appendingPathComponent("\(request.requestId).json")
         let requestURL = paths.requestsURL.appendingPathComponent("\(request.requestId).json")
@@ -375,7 +375,7 @@ final class BridgeClient: @unchecked Sendable {
             try writeRequest(request, requestId: request.requestId)
             try writeDispatchRequestId(request.requestId)
             try triggerOmniFocus(requestId: request.requestId)
-            let response = try waitForResponse(
+            let response = try await waitForResponse(
                 at: responseURL,
                 requestURL: requestURL,
                 lockURL: lockURL,
@@ -395,14 +395,14 @@ final class BridgeClient: @unchecked Sendable {
         }
     }
 
-    private func waitForResponse<T: Decodable>(
+    func waitForResponse<T: Decodable>(
         at url: URL,
         requestURL: URL,
         lockURL: URL,
         requestId: String,
         timeout: TimeInterval,
         responseType: T.Type
-    ) throws -> BridgeResponse<T> {
+    ) async throws -> BridgeResponse<T> {
         let start = Date()
         var lastReadError: Error?
         var hasRedispatchedStrandedRequest = false
@@ -431,7 +431,7 @@ final class BridgeClient: @unchecked Sendable {
                     lastReadError = error
                 }
             }
-            Thread.sleep(forTimeInterval: configuration.responsePollInterval)
+            try await Task.sleep(nanoseconds: UInt64(configuration.responsePollInterval * 1_000_000_000))
         }
 
         if fileManager.fileExists(atPath: url.path) {
@@ -454,7 +454,7 @@ final class BridgeClient: @unchecked Sendable {
             lockExists: lockExists
         ) {
             do {
-                if let recovered: BridgeResponse<T> = try attemptLateStrandedRecovery(
+                if let recovered: BridgeResponse<T> = try await attemptLateStrandedRecovery(
                     at: url,
                     requestId: requestId,
                     timeout: timeout,
@@ -474,12 +474,12 @@ final class BridgeClient: @unchecked Sendable {
         )
     }
 
-    private func attemptLateStrandedRecovery<T: Decodable>(
+    func attemptLateStrandedRecovery<T: Decodable>(
         at responseURL: URL,
         requestId: String,
         timeout: TimeInterval,
         responseType: T.Type
-    ) throws -> BridgeResponse<T>? {
+    ) async throws -> BridgeResponse<T>? {
         try writeDispatchRequestId(requestId)
         try triggerOmniFocus(requestId: requestId)
         let graceDeadline = Date().addingTimeInterval(lateStrandedRecoveryGrace(timeout: timeout))
@@ -489,7 +489,7 @@ final class BridgeClient: @unchecked Sendable {
                 let data = try Data(contentsOf: responseURL)
                 return try decoder.decode(BridgeResponse<T>.self, from: data)
             }
-            Thread.sleep(forTimeInterval: configuration.responsePollInterval)
+            try await Task.sleep(nanoseconds: UInt64(configuration.responsePollInterval * 1_000_000_000))
         }
 
         return nil
