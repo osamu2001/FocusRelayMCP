@@ -938,11 +938,16 @@
               reviewInterval: hasField("reviewInterval") ? reviewIntervalPayload : null,
               completionDate: hasField("completionDate") && completionDate ? completionDate.toISOString() : null
             };
+
+            const needsFlattenedTasks = includeTaskCounts || hasField("hasChildren") || hasField("isStalled");
+            const flattenedTasks = needsFlattenedTasks ? (safe(() => p.flattenedTasks) || []) : null;
+            const needsNextTask = hasField("nextTask") || hasField("isStalled");
+            const nextTask = needsNextTask ? safe(() => p.nextTask) : null;
+            const needsSingletonActions = hasField("containsSingletonActions") || hasField("isStalled");
+            const isSingleActions = needsSingletonActions ? Boolean(safe(() => p.containsSingletonActions)) : null;
             
             // Calculate task counts from flattenedTasks
             if (includeTaskCounts) {
-              const flattenedTasks = safe(() => p.flattenedTasks) || [];
-              
               // Count tasks by status
               let available = 0;
               let remaining = 0;
@@ -973,18 +978,16 @@
             
             // Add hasChildren for stalled project detection
             if (hasField("hasChildren")) {
-              const flattenedTasks = safe(() => p.flattenedTasks) || [];
               item.hasChildren = flattenedTasks.length > 0;
             }
             
             // Add containsSingletonActions to identify Single Actions projects
             if (hasField("containsSingletonActions")) {
-              item.containsSingletonActions = Boolean(safe(() => p.containsSingletonActions));
+              item.containsSingletonActions = isSingleActions;
             }
             
             // Add nextTask for stalled project detection (null if no available actions)
             if (hasField("nextTask")) {
-              const nextTask = safe(() => p.nextTask);
               item.nextTask = nextTask ? {
                 id: String(safe(() => nextTask.id.primaryKey) || ""),
                 name: String(safe(() => nextTask.name) || "")
@@ -993,10 +996,7 @@
             
             // Add isStalled field - true if has tasks but no nextTask AND not Single Actions
             if (hasField("isStalled")) {
-              const flattenedTasks = safe(() => p.flattenedTasks) || [];
               const hasTasks = flattenedTasks.length > 0;
-              const nextTask = safe(() => p.nextTask);
-              const isSingleActions = Boolean(safe(() => p.containsSingletonActions));
               item.isStalled = hasTasks && !nextTask && !isSingleActions;
             }
             
