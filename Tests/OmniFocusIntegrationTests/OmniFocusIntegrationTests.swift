@@ -509,6 +509,43 @@ func bridgeProjectTaskCountsIncludedLive() throws {
 }
 
 @Test
+func bridgeProjectDerivedFieldsIncludedLive() throws {
+    let env = ProcessInfo.processInfo.environment
+    guard env["FOCUS_RELAY_BRIDGE_TESTS"] == "1" else {
+        return
+    }
+
+    let client = BridgeClient()
+    let page = try client.listProjects(
+        page: PageRequest(limit: 10),
+        statusFilter: "active",
+        includeTaskCounts: true,
+        reviewDueBefore: nil,
+        reviewDueAfter: nil,
+        reviewPerspective: false,
+        completed: nil,
+        completedBefore: nil,
+        completedAfter: nil,
+        fields: ["id", "name", "hasChildren", "nextTask", "containsSingletonActions", "isStalled"]
+    )
+
+    guard !page.items.isEmpty else {
+        return
+    }
+
+    #expect(page.items.allSatisfy { $0.hasChildren != nil })
+    #expect(page.items.allSatisfy { $0.containsSingletonActions != nil })
+    #expect(page.items.allSatisfy { $0.isStalled != nil })
+
+    for item in page.items {
+        if let nextTask = item.nextTask {
+            #expect(!nextTask.id.isEmpty)
+            #expect(!nextTask.name.isEmpty)
+        }
+    }
+}
+
+@Test
 func bridgeTagsPagingLive() throws {
     let env = ProcessInfo.processInfo.environment
     guard env["FOCUS_RELAY_BRIDGE_TESTS"] == "1" else {
