@@ -116,6 +116,59 @@ private struct GateListTagScenario {
     let includeTaskCounts: Bool
 }
 
+private func listTaskParityScenarios(using bridge: OmniFocusBridgeService) async -> [GateListTaskScenario] {
+    var scenarios = [
+        GateListTaskScenario(name: "default", filter: TaskFilter(includeTotalCount: true)),
+        GateListTaskScenario(name: "default_no_total", filter: TaskFilter(includeTotalCount: false)),
+        GateListTaskScenario(name: "inbox_only", filter: TaskFilter(inboxOnly: true, includeTotalCount: true)),
+        GateListTaskScenario(name: "inbox_only_no_total", filter: TaskFilter(inboxOnly: true, includeTotalCount: false)),
+        GateListTaskScenario(name: "available_only", filter: TaskFilter(availableOnly: true, includeTotalCount: true)),
+        GateListTaskScenario(name: "available_only_no_total", filter: TaskFilter(availableOnly: true, includeTotalCount: false)),
+        GateListTaskScenario(name: "flagged_only_no_total", filter: TaskFilter(flagged: true, includeTotalCount: false)),
+        GateListTaskScenario(name: "project_view_active_total", filter: TaskFilter(completed: false, availableOnly: false, projectView: "active", includeTotalCount: true))
+    ]
+
+    let projectPage = try? await retryAsync(operation: "bridge discover project for list-tasks parity") {
+        try await bridge.listProjects(
+            page: PageRequest(limit: 10),
+            statusFilter: "active",
+            includeTaskCounts: false,
+            reviewDueBefore: nil,
+            reviewDueAfter: nil,
+            reviewPerspective: false,
+            completed: nil,
+            completedBefore: nil,
+            completedAfter: nil,
+            fields: ["id"]
+        )
+    }
+    if let projectID = projectPage?.items.first?.id, !projectID.isEmpty {
+        scenarios.append(GateListTaskScenario(name: "project_scoped_total", filter: TaskFilter(project: projectID, includeTotalCount: true)))
+        scenarios.append(GateListTaskScenario(name: "project_scoped_no_total", filter: TaskFilter(project: projectID, includeTotalCount: false)))
+    }
+
+    let tagPage = try? await retryAsync(operation: "bridge discover tag for list-tasks parity") {
+        try await bridge.listTags(page: PageRequest(limit: 10), statusFilter: "active", includeTaskCounts: false)
+    }
+    if let tagID = tagPage?.items.first?.id, !tagID.isEmpty {
+        scenarios.append(GateListTaskScenario(name: "tag_scoped_total", filter: TaskFilter(tags: [tagID], includeTotalCount: true)))
+        scenarios.append(GateListTaskScenario(name: "tag_scoped_no_total", filter: TaskFilter(tags: [tagID], includeTotalCount: false)))
+    }
+
+    let plannedPage = try? await retryAsync(operation: "bridge discover planned-date anchor for list-tasks parity") {
+        try await bridge.listTasks(
+            filter: TaskFilter(completed: false, availableOnly: false, includeTotalCount: false),
+            page: PageRequest(limit: 200),
+            fields: ["id", "plannedDate"]
+        )
+    }
+    if let plannedAfter = plannedPage?.items.first(where: { $0.plannedDate != nil })?.plannedDate {
+        scenarios.append(GateListTaskScenario(name: "planned_after_anchor_total", filter: TaskFilter(plannedAfter: plannedAfter, includeTotalCount: true)))
+    }
+
+    return scenarios
+}
+
 private func checkBridgeHealth(using service: OmniFocusBridgeService) async -> GateCheck {
     do {
         let result = try await service.healthCheck()
@@ -202,15 +255,7 @@ private func taskCountParityChecks(bridge: OmniFocusBridgeService, jxa: OmniAuto
 }
 
 private func listTaskParityChecks(bridge: OmniFocusBridgeService, jxa: OmniAutomationService) async -> [GateCheck] {
-    let scenarios = [
-        GateListTaskScenario(name: "default", filter: TaskFilter(includeTotalCount: true)),
-        GateListTaskScenario(name: "default_no_total", filter: TaskFilter(includeTotalCount: false)),
-        GateListTaskScenario(name: "inbox_only", filter: TaskFilter(inboxOnly: true, includeTotalCount: true)),
-        GateListTaskScenario(name: "inbox_only_no_total", filter: TaskFilter(inboxOnly: true, includeTotalCount: false)),
-        GateListTaskScenario(name: "available_only", filter: TaskFilter(availableOnly: true, includeTotalCount: true)),
-        GateListTaskScenario(name: "available_only_no_total", filter: TaskFilter(availableOnly: true, includeTotalCount: false)),
-        GateListTaskScenario(name: "flagged_only_no_total", filter: TaskFilter(flagged: true, includeTotalCount: false))
-    ]
+    let scenarios = await listTaskParityScenarios(using: bridge)
     let fields = ["id", "name", "completed", "available", "completionDate"]
 
     return await scenarios.asyncMap { scenario in

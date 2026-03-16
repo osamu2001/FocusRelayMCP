@@ -30,7 +30,10 @@ struct BenchmarkListTasks: AsyncParsableCommand {
 
     func run() async throws {
         let completedAfterDate = try ISO8601DateParser.parse(completedAfter, argumentName: "--completed-after")
-        let scenarios = listTaskScenarios(completedAfter: completedAfterDate)
+        let pluginService = OmniFocusBridgeService()
+        let jxaService = OmniAutomationService()
+        let advancedCandidates = await discoverAdvancedListTaskCandidates(using: pluginService)
+        let scenarios = listTaskScenarios(completedAfter: completedAfterDate, advancedCandidates: advancedCandidates)
         let outputURL = try listTaskBenchmarkOutputDirectory(customPath: outputDir)
         let rawURL = outputURL.appendingPathComponent("raw.jsonl")
         let timeoutDiagnosticsURL = outputURL.appendingPathComponent("timeout-diagnostics.jsonl")
@@ -40,9 +43,6 @@ struct BenchmarkListTasks: AsyncParsableCommand {
 
         print("Benchmark output directory: \(outputURL.path)")
         print("Scenarios: \(scenarios.map(\.name).joined(separator: ", "))")
-
-        let pluginService = OmniFocusBridgeService()
-        let jxaService = OmniAutomationService()
 
         var callIndex = 0
         var stats: [String: [String: ListTaskStats]] = [:]
@@ -150,6 +150,12 @@ private struct ListTaskScenario {
     let filter: TaskFilter
 }
 
+private struct AdvancedListTaskCandidates {
+    let projectID: String?
+    let tagID: String?
+    let plannedAfter: Date?
+}
+
 private struct ListTaskEvent: Codable {
     let timestamp: String
     let phase: String
@@ -223,8 +229,8 @@ private struct ListTaskTimeoutDiagnostic: Codable {
     let bridgeHealth: ListTaskTimeoutBridgeHealthSnapshot?
 }
 
-private func listTaskScenarios(completedAfter: Date) -> [ListTaskScenario] {
-    [
+private func listTaskScenarios(completedAfter: Date, advancedCandidates: AdvancedListTaskCandidates) -> [ListTaskScenario] {
+    var scenarios = [
         ListTaskScenario(name: "default", filter: TaskFilter(includeTotalCount: true)),
         ListTaskScenario(name: "default_no_total", filter: TaskFilter(includeTotalCount: false)),
         ListTaskScenario(name: "inbox_only", filter: TaskFilter(inboxOnly: true, includeTotalCount: true)),
@@ -235,6 +241,104 @@ private func listTaskScenarios(completedAfter: Date) -> [ListTaskScenario] {
         ListTaskScenario(name: "flagged_only", filter: TaskFilter(flagged: true, includeTotalCount: true)),
         ListTaskScenario(name: "flagged_only_no_total", filter: TaskFilter(flagged: true, includeTotalCount: false))
     ]
+
+    scenarios.append(
+        ListTaskScenario(
+            name: "project_view_active_total",
+            filter: TaskFilter(completed: false, availableOnly: false, projectView: "active", includeTotalCount: true)
+        )
+    )
+
+    if let projectID = advancedCandidates.projectID, !projectID.isEmpty {
+        scenarios.append(
+            ListTaskScenario(
+                name: "project_scoped_total",
+                filter: TaskFilter(project: projectID, includeTotalCount: true)
+            )
+        )
+        scenarios.append(
+            ListTaskScenario(
+                name: "project_scoped_no_total",
+                filter: TaskFilter(project: projectID, includeTotalCount: false)
+            )
+        )
+    }
+
+    if let tagID = advancedCandidates.tagID, !tagID.isEmpty {
+        scenarios.append(
+            ListTaskScenario(
+                name: "tag_scoped_total",
+                filter: TaskFilter(tags: [tagID], includeTotalCount: true)
+            )
+        )
+        scenarios.append(
+            ListTaskScenario(
+                name: "tag_scoped_no_total",
+                filter: TaskFilter(tags: [tagID], includeTotalCount: false)
+            )
+        )
+    }
+
+    if let plannedAfter = advancedCandidates.plannedAfter {
+        scenarios.append(
+            ListTaskScenario(
+                name: "planned_after_anchor_total",
+                filter: TaskFilter(plannedAfter: plannedAfter, includeTotalCount: true)
+            )
+        )
+    }
+
+    return scenarios
+}
+
+private func discoverAdvancedListTaskCandidates(using bridge: OmniFocusBridgeService) async -> AdvancedListTaskCandidates {
+    async let projectID: String? = {
+        do {
+            let page = try await bridge.listProjects(
+                page: PageRequest(limit: 10),
+                statusFilter: "active",
+                includeTaskCounts: false,
+                reviewDueBefore: nil,
+                reviewDueAfter: nil,
+                reviewPerspective: false,
+                completed: nil,
+                completedBefore: nil,
+                completedAfter: nil,
+                fields: ["id"]
+            )
+            return page.items.first?.id
+        } catch {
+            return nil
+        }
+    }()
+
+    async let tagID: String? = {
+        do {
+            let page = try await bridge.listTags(page: PageRequest(limit: 10), statusFilter: "active", includeTaskCounts: false)
+            return page.items.first?.id
+        } catch {
+            return nil
+        }
+    }()
+
+    async let plannedAfter: Date? = {
+        do {
+            let page = try await bridge.listTasks(
+                filter: TaskFilter(completed: false, availableOnly: false, includeTotalCount: false),
+                page: PageRequest(limit: 200),
+                fields: ["id", "plannedDate"]
+            )
+            return page.items.first(where: { $0.plannedDate != nil })?.plannedDate
+        } catch {
+            return nil
+        }
+    }()
+
+    return await AdvancedListTaskCandidates(
+        projectID: projectID,
+        tagID: tagID,
+        plannedAfter: plannedAfter
+    )
 }
 
 private func listTaskBenchCall(
