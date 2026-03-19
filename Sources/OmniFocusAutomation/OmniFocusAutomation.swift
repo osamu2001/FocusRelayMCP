@@ -20,9 +20,43 @@ public enum AutomationError: Error, LocalizedError {
 }
 
 public final class ScriptRunner: Sendable {
-    public init() {}
+    private let osaKitExecutor: @Sendable (String) throws -> String
+    private let osaScriptExecutor: @Sendable (String) throws -> String
+
+    public init() {
+        self.osaKitExecutor = Self.runWithOSAKit
+        self.osaScriptExecutor = Self.runWithOSAScript
+    }
+
+    init(
+        osaKitExecutor: @escaping @Sendable (String) throws -> String,
+        osaScriptExecutor: @escaping @Sendable (String) throws -> String
+    ) {
+        self.osaKitExecutor = osaKitExecutor
+        self.osaScriptExecutor = osaScriptExecutor
+    }
 
     public func runJavaScript(_ source: String) throws -> String {
+        do {
+            return try osaKitExecutor(source)
+        } catch let error as AutomationError {
+            guard Self.shouldFallbackToOSAScript(after: error) else {
+                throw error
+            }
+            return try osaScriptExecutor(source)
+        }
+    }
+
+    static func shouldFallbackToOSAScript(after error: AutomationError) -> Bool {
+        guard case .executionFailed(let message) = error else {
+            return false
+        }
+        return message.contains("OSAScriptErrorNumberKey = \"-1743\"")
+            || message.contains("OSAScriptErrorNumberKey = -1743")
+            || message.localizedCaseInsensitiveContains("not authorized to send Apple events")
+    }
+
+    private static func runWithOSAKit(_ source: String) throws -> String {
         guard let language = OSALanguage(forName: "JavaScript") else {
             throw AutomationError.scriptCreationFailed
         }
@@ -35,6 +69,36 @@ public final class ScriptRunner: Sendable {
         }
 
         return output?.stringValue ?? ""
+    }
+
+    private static func runWithOSAScript(_ source: String) throws -> String {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+        process.arguments = ["-l", "JavaScript", "-e", source]
+
+        let stdout = Pipe()
+        let stderr = Pipe()
+        process.standardOutput = stdout
+        process.standardError = stderr
+
+        do {
+            try process.run()
+        } catch {
+            throw AutomationError.executionFailed("Failed to launch osascript: \(error.localizedDescription)")
+        }
+        process.waitUntilExit()
+
+        let outputData = stdout.fileHandleForReading.readDataToEndOfFile()
+        let errorData = stderr.fileHandleForReading.readDataToEndOfFile()
+        let output = String(decoding: outputData, as: UTF8.self)
+        let errorOutput = String(decoding: errorData, as: UTF8.self)
+
+        guard process.terminationStatus == 0 else {
+            let message = errorOutput.isEmpty ? output : errorOutput
+            throw AutomationError.executionFailed(message)
+        }
+
+        return output.trimmingCharacters(in: .newlines)
     }
 }
 
@@ -676,6 +740,27 @@ private func listTasksOmniAutomationScript(requestJSON: String) -> String {
 }
 
 private func listProjectsScript(requestJSON: String) -> String {
+    let automationScript = listProjectsOmniAutomationScript(requestJSON: requestJSON)
+    return """
+    (function() {
+      var app = Application('OmniFocus');
+      var script = \(jsStringLiteral(automationScript));
+      var result = app.evaluateJavascript(script);
+      if (Array.isArray(result)) {
+        if (result.length === 0 || result[0] === null || typeof result[0] === "undefined") {
+          return "";
+        }
+        return String(result[0]);
+      }
+      if (result === null || typeof result === "undefined") {
+        return "";
+      }
+      return String(result);
+    })();
+    """
+}
+
+private func listProjectsOmniAutomationScript(requestJSON: String) -> String {
     return """
     (function() {
       var request = \(requestJSON);
@@ -752,8 +837,6 @@ private func listProjectsScript(requestJSON: String) -> String {
         return "unknown";
       }
 
-      var app = Application('OmniFocus');
-      var doc = app.defaultDocument();
       var statusFilter = (typeof request.statusFilter === "string") ? request.statusFilter.toLowerCase() : "active";
       var includeTaskCounts = request.includeTaskCounts === true;
       var reviewPerspective = request.reviewPerspective === true;
@@ -763,7 +846,7 @@ private func listProjectsScript(requestJSON: String) -> String {
       var completedAfter = request.completedAfter ? parseFilterDate(request.completedAfter) : null;
       var completedBefore = request.completedBefore ? parseFilterDate(request.completedBefore) : null;
       var completedOnly = request.completed === true;
-      var projects = toArray(safe(function() { return doc.flattenedProjects(); }) || safe(function() { return doc.flattenedProjects; }));
+      var projects = toArray(safe(function() { return flattenedProjects; }));
 
       if (reviewPerspective) {
         projects = projects.filter(function(project) {
@@ -893,6 +976,27 @@ private func listProjectsScript(requestJSON: String) -> String {
 }
 
 private func listTagsScript(requestJSON: String) -> String {
+    let automationScript = listTagsOmniAutomationScript(requestJSON: requestJSON)
+    return """
+    (function() {
+      var app = Application('OmniFocus');
+      var script = \(jsStringLiteral(automationScript));
+      var result = app.evaluateJavascript(script);
+      if (Array.isArray(result)) {
+        if (result.length === 0 || result[0] === null || typeof result[0] === "undefined") {
+          return "";
+        }
+        return String(result[0]);
+      }
+      if (result === null || typeof result === "undefined") {
+        return "";
+      }
+      return String(result);
+    })();
+    """
+}
+
+private func listTagsOmniAutomationScript(requestJSON: String) -> String {
     return """
     (function() {
       var request = \(requestJSON);
@@ -934,10 +1038,13 @@ private func listTagsScript(requestJSON: String) -> String {
         }
         return "active";
       }
-      function childTags(tag) {
-        return toArray(safe(function() { return tag.children; }) || safe(function() { return tag.children(); }));
-      }
-      function flattenedTags(doc) {
+      function allTags() {
+        var flat = toArray(safe(function() { return flattenedTags; }));
+        if (flat.length > 0) { return flat; }
+
+        function childTags(tag) {
+          return toArray(safe(function() { return tag.children; }) || safe(function() { return tag.children(); }));
+        }
         var result = [];
         function visit(tag) {
           result.push(tag);
@@ -946,21 +1053,19 @@ private func listTagsScript(requestJSON: String) -> String {
             visit(children[i]);
           }
         }
-        var roots = toArray(safe(function() { return doc.tags(); }) || safe(function() { return doc.tags; }));
+        var roots = toArray(safe(function() { return tags; }));
         for (var i = 0; i < roots.length; i += 1) {
           visit(roots[i]);
         }
         return result;
       }
 
-      var app = Application('OmniFocus');
-      var doc = app.defaultDocument();
       var statusFilter = (typeof request.statusFilter === "string") ? request.statusFilter.toLowerCase() : "active";
       var includeTaskCounts = request.includeTaskCounts === true;
-      var tags = flattenedTags(doc);
+      var tagItems = allTags();
 
       if (statusFilter !== "all") {
-        tags = tags.filter(function(tag) {
+        tagItems = tagItems.filter(function(tag) {
           var statusName = tagStatusName(tag);
           if (statusFilter === "active") { return statusName === "active"; }
           if (statusFilter === "onhold" || statusFilter === "on_hold") { return statusName === "onHold"; }
@@ -969,8 +1074,8 @@ private func listTagsScript(requestJSON: String) -> String {
         });
       }
 
-      var total = tags.length;
-      var slice = tags.slice(offset, offset + limit);
+      var total = tagItems.length;
+      var slice = tagItems.slice(offset, offset + limit);
       var items = slice.map(function(tag) {
         var item = {
           id: String(safe(function() { return tag.id.primaryKey; }) || ""),
