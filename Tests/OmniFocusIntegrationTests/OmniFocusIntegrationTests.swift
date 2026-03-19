@@ -197,6 +197,85 @@ func bridgeAndJXAProjectCountsParityLive() async throws {
 }
 
 @Test
+func bridgeAndJXAListProjectsParityLive() async throws {
+    let env = ProcessInfo.processInfo.environment
+    guard env["FOCUS_RELAY_PARITY_TESTS"] == "1" else {
+        return
+    }
+
+    let bridge = OmniFocusBridgeService(cacheTTL: 0)
+    let automation = OmniAutomationService()
+    let scenarios: [(String, String?, Bool, [String])] = [
+        ("activeMinimal", "active", false, ["id", "name"]),
+        ("activeCounts", "active", true, ["id", "name"]),
+        ("activeCountsStalled", "active", true, ["id", "name", "hasChildren", "nextTask", "containsSingletonActions", "isStalled"])
+    ]
+
+    for (name, statusFilter, includeTaskCounts, fields) in scenarios {
+        let bridgePage = try await retryListProjects(
+            service: bridge,
+            page: PageRequest(limit: 50),
+            statusFilter: statusFilter,
+            includeTaskCounts: includeTaskCounts,
+            fields: fields
+        )
+        let jxaPage = try await retryListProjects(
+            service: automation,
+            page: PageRequest(limit: 50),
+            statusFilter: statusFilter,
+            includeTaskCounts: includeTaskCounts,
+            fields: fields
+        )
+
+        #expect((bridgePage.totalCount ?? -1) == (jxaPage.totalCount ?? -1), "project totalCount mismatch on scenario=\(name)")
+        #expect(bridgePage.returnedCount == jxaPage.returnedCount, "project returnedCount mismatch on scenario=\(name)")
+        #expect(bridgePage.nextCursor == jxaPage.nextCursor, "project nextCursor mismatch on scenario=\(name)")
+
+        let bridgeRows = bridgePage.items.map { testProjectRowSignature($0, fields: Set(fields), includeTaskCounts: includeTaskCounts) }
+        let jxaRows = jxaPage.items.map { testProjectRowSignature($0, fields: Set(fields), includeTaskCounts: includeTaskCounts) }
+        #expect(bridgeRows == jxaRows, "project rows mismatch on scenario=\(name)")
+    }
+}
+
+@Test
+func bridgeAndJXAListTagsParityLive() async throws {
+    let env = ProcessInfo.processInfo.environment
+    guard env["FOCUS_RELAY_PARITY_TESTS"] == "1" else {
+        return
+    }
+
+    let bridge = OmniFocusBridgeService(cacheTTL: 0)
+    let automation = OmniAutomationService()
+    let scenarios: [(String, String?, Bool)] = [
+        ("activeNoCounts", "active", false),
+        ("activeWithCounts", "active", true)
+    ]
+
+    for (name, statusFilter, includeTaskCounts) in scenarios {
+        let bridgePage = try await retryListTags(
+            service: bridge,
+            page: PageRequest(limit: 50),
+            statusFilter: statusFilter,
+            includeTaskCounts: includeTaskCounts
+        )
+        let jxaPage = try await retryListTags(
+            service: automation,
+            page: PageRequest(limit: 50),
+            statusFilter: statusFilter,
+            includeTaskCounts: includeTaskCounts
+        )
+
+        #expect((bridgePage.totalCount ?? -1) == (jxaPage.totalCount ?? -1), "tag totalCount mismatch on scenario=\(name)")
+        #expect(bridgePage.returnedCount == jxaPage.returnedCount, "tag returnedCount mismatch on scenario=\(name)")
+        #expect(bridgePage.nextCursor == jxaPage.nextCursor, "tag nextCursor mismatch on scenario=\(name)")
+
+        let bridgeRows = bridgePage.items.map { testTagRowSignature($0, includeTaskCounts: includeTaskCounts) }
+        let jxaRows = jxaPage.items.map { testTagRowSignature($0, includeTaskCounts: includeTaskCounts) }
+        #expect(bridgeRows == jxaRows, "tag rows mismatch on scenario=\(name)")
+    }
+}
+
+@Test
 func bridgeInboxViewCountsMatchListTasksLive() throws {
     let env = ProcessInfo.processInfo.environment
     guard env["FOCUS_RELAY_BRIDGE_TESTS"] == "1" else {
@@ -802,6 +881,76 @@ private func retryProjectCounts(
     try await retryOperation(maxAttempts: maxAttempts) {
         try await service.getProjectCounts(filter: filter)
     }
+}
+
+private func retryListProjects(
+    service: any OmniFocusService,
+    page: PageRequest,
+    statusFilter: String?,
+    includeTaskCounts: Bool,
+    fields: [String],
+    maxAttempts: Int = 3
+) async throws -> Page<ProjectItem> {
+    try await retryOperation(maxAttempts: maxAttempts) {
+        try await service.listProjects(
+            page: page,
+            statusFilter: statusFilter,
+            includeTaskCounts: includeTaskCounts,
+            reviewDueBefore: nil,
+            reviewDueAfter: nil,
+            reviewPerspective: false,
+            completed: nil,
+            completedBefore: nil,
+            completedAfter: nil,
+            fields: fields
+        )
+    }
+}
+
+private func retryListTags(
+    service: any OmniFocusService,
+    page: PageRequest,
+    statusFilter: String?,
+    includeTaskCounts: Bool,
+    maxAttempts: Int = 3
+) async throws -> Page<TagItem> {
+    try await retryOperation(maxAttempts: maxAttempts) {
+        try await service.listTags(page: page, statusFilter: statusFilter, includeTaskCounts: includeTaskCounts)
+    }
+}
+
+private func testProjectRowSignature(
+    _ item: ProjectItem,
+    fields: Set<String>,
+    includeTaskCounts: Bool
+) -> String {
+    [
+        item.id,
+        fields.contains("name") ? item.name : "_",
+        fields.contains("hasChildren") ? String(describing: item.hasChildren) : "_",
+        fields.contains("nextTask") ? String(describing: item.nextTask.map { "\($0.id):\($0.name)" }) : "_",
+        fields.contains("containsSingletonActions") ? String(describing: item.containsSingletonActions) : "_",
+        fields.contains("isStalled") ? String(describing: item.isStalled) : "_",
+        includeTaskCounts ? String(describing: item.availableTasks) : "_",
+        includeTaskCounts ? String(describing: item.remainingTasks) : "_",
+        includeTaskCounts ? String(describing: item.completedTasks) : "_",
+        includeTaskCounts ? String(describing: item.droppedTasks) : "_",
+        includeTaskCounts ? String(describing: item.totalTasks) : "_"
+    ].joined(separator: "|")
+}
+
+private func testTagRowSignature(
+    _ item: TagItem,
+    includeTaskCounts: Bool
+) -> String {
+    [
+        item.id,
+        item.name,
+        String(describing: item.status),
+        includeTaskCounts ? String(describing: item.availableTasks) : "_",
+        includeTaskCounts ? String(describing: item.remainingTasks) : "_",
+        includeTaskCounts ? String(describing: item.totalTasks) : "_"
+    ].joined(separator: "|")
 }
 
 private func retryOperation<T>(

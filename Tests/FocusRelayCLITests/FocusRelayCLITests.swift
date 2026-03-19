@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import FocusRelayCLI
+@testable import OmniFocusCore
 
 @Test
 func fieldListParsesCommaSeparatedValues() {
@@ -24,4 +25,67 @@ func iso8601DateParserRejectsInvalidDates() {
         didThrow = true
     }
     #expect(didThrow)
+}
+
+@Test
+func listTagsScopeSkipsJXAInboxProbe() {
+    #expect(shouldRunJXAProbe(for: .all))
+    #expect(!shouldRunJXAProbe(for: .listTags))
+    #expect(!shouldRunJXAProbe(for: .listProjects))
+}
+
+@Test
+func projectRowSignatureIncludesRequestedNameAndCounts() {
+    let base = ProjectItem(
+        id: "project-1",
+        name: "Alpha",
+        status: "active",
+        flagged: false,
+        availableTasks: 1,
+        remainingTasks: 2,
+        completedTasks: 3,
+        droppedTasks: 4,
+        totalTasks: 10
+    )
+    let renamed = ProjectItem(
+        id: "project-1",
+        name: "Beta",
+        status: "active",
+        flagged: false,
+        availableTasks: 1,
+        remainingTasks: 2,
+        completedTasks: 3,
+        droppedTasks: 4,
+        totalTasks: 10
+    )
+    let recounted = ProjectItem(
+        id: "project-1",
+        name: "Alpha",
+        status: "active",
+        flagged: false,
+        availableTasks: 9,
+        remainingTasks: 2,
+        completedTasks: 3,
+        droppedTasks: 4,
+        totalTasks: 10
+    )
+
+    #expect(
+        gateProjectRowSignature(base, fields: ["id", "name"], includeTaskCounts: true)
+            != gateProjectRowSignature(renamed, fields: ["id", "name"], includeTaskCounts: true)
+    )
+    #expect(
+        gateProjectRowSignature(base, fields: ["id", "name"], includeTaskCounts: true)
+            != gateProjectRowSignature(recounted, fields: ["id", "name"], includeTaskCounts: true)
+    )
+}
+
+@Test
+func tagRowSignatureIncludesStatusAndCountsWhenRequested() {
+    let base = TagItem(id: "tag-1", name: "Office", status: "active", availableTasks: 1, remainingTasks: 2, totalTasks: 3)
+    let statusChanged = TagItem(id: "tag-1", name: "Office", status: "onHold", availableTasks: 1, remainingTasks: 2, totalTasks: 3)
+    let countChanged = TagItem(id: "tag-1", name: "Office", status: "active", availableTasks: 9, remainingTasks: 2, totalTasks: 3)
+
+    #expect(gateTagRowSignature(base, includeTaskCounts: false) != gateTagRowSignature(statusChanged, includeTaskCounts: false))
+    #expect(gateTagRowSignature(base, includeTaskCounts: true) != gateTagRowSignature(countChanged, includeTaskCounts: true))
 }

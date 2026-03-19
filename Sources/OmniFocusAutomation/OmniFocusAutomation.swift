@@ -148,6 +148,8 @@ public final class OmniAutomationService: OmniFocusService {
                 totalTasks: payload.totalTasks,
                 hasChildren: payload.hasChildren,
                 nextTask: nextTask,
+                containsSingletonActions: payload.containsSingletonActions,
+                isStalled: payload.isStalled,
                 completionDate: payload.completionDate
             )
         }
@@ -155,8 +157,27 @@ public final class OmniAutomationService: OmniFocusService {
     }
 
     public func listTags(page: PageRequest, statusFilter: String?, includeTaskCounts: Bool) async throws -> Page<TagItem> {
-        _ = runner
-        throw AutomationError.notImplemented
+        let request = ListTagsRequest(page: page, statusFilter: statusFilter, includeTaskCounts: includeTaskCounts)
+        let requestData = try requestEncoder.encode(request)
+        guard let requestJSON = String(data: requestData, encoding: .utf8) else {
+            throw AutomationError.executionFailed("Failed to encode request JSON")
+        }
+
+        let script = listTagsScript(requestJSON: requestJSON)
+        let output = try runner.runJavaScript(script)
+        let data = Data(output.utf8)
+        let payloadPage = try decoder.decode(Page<TagItemPayload>.self, from: data)
+        let items = payloadPage.items.map { payload in
+            TagItem(
+                id: payload.id ?? "",
+                name: payload.name ?? "",
+                status: payload.status,
+                availableTasks: payload.availableTasks,
+                remainingTasks: payload.remainingTasks,
+                totalTasks: payload.totalTasks
+            )
+        }
+        return Page(items: items, nextCursor: payloadPage.nextCursor, returnedCount: payloadPage.returnedCount, totalCount: payloadPage.totalCount)
     }
 
     public func getTaskCounts(filter: TaskFilter) async throws -> TaskCounts {
@@ -218,6 +239,12 @@ private struct ListProjectsRequest: Codable {
     let completedBefore: Date?
     let completedAfter: Date?
     let fields: [String]?
+}
+
+private struct ListTagsRequest: Codable {
+    let page: PageRequest
+    let statusFilter: String?
+    let includeTaskCounts: Bool
 }
 
 private struct TaskCountsRequest: Codable {
@@ -665,41 +692,306 @@ private func listProjectsScript(requestJSON: String) -> String {
       function safe(fn) {
         try { return fn(); } catch (e) { return null; }
       }
+      function toArray(collection) {
+        if (!collection) { return []; }
+        if (Array.isArray(collection)) { return collection; }
+        if (typeof collection.apply === "function") {
+          var items = [];
+          collection.apply(function(item) { items.push(item); });
+          return items;
+        }
+        try {
+          return Array.from(collection);
+        } catch (e) {
+          return [];
+        }
+      }
+      function parseFilterDate(dateString) {
+        if (!dateString || typeof dateString !== "string") { return null; }
+        var parsed = new Date(dateString);
+        if (isNaN(parsed.getTime())) { return null; }
+        return parsed;
+      }
+      function getProjectDateTimestamp(project, getter) {
+        var value = safe(function() { return getter(project); });
+        if (!value || typeof value.getTime !== "function") { return null; }
+        var timestamp = value.getTime();
+        if (isNaN(timestamp)) { return null; }
+        return timestamp;
+      }
+      function taskStatusName(task) {
+        var status = safe(function() { return task.taskStatus; });
+        var statusText = String(status);
+        if (statusText.indexOf("Completed") !== -1) { return "completed"; }
+        if (statusText.indexOf("Dropped") !== -1) { return "dropped"; }
+        if (statusText.indexOf("Available") !== -1) { return "available"; }
+        if (statusText.indexOf("DueSoon") !== -1) { return "dueSoon"; }
+        if (statusText.indexOf("Next") !== -1) { return "next"; }
+        if (statusText.indexOf("Overdue") !== -1) { return "overdue"; }
+        if (statusText.indexOf("Blocked") !== -1) { return "blocked"; }
+        if (status === Task.Status.Completed) { return "completed"; }
+        if (status === Task.Status.Dropped) { return "dropped"; }
+        if (status === Task.Status.Available) { return "available"; }
+        if (status === Task.Status.DueSoon) { return "dueSoon"; }
+        if (status === Task.Status.Next) { return "next"; }
+        if (status === Task.Status.Overdue) { return "overdue"; }
+        if (status === Task.Status.Blocked) { return "blocked"; }
+        return "unknown";
+      }
+      function projectStatusName(project) {
+        var status = safe(function() { return project.status; });
+        var statusText = String(status);
+        if (statusText.indexOf("OnHold") !== -1) { return "onHold"; }
+        if (statusText.indexOf("Dropped") !== -1) { return "dropped"; }
+        if (statusText.indexOf("Done") !== -1) { return "done"; }
+        if (statusText.indexOf("Active") !== -1) { return "active"; }
+        if (status === Project.Status.OnHold) { return "onHold"; }
+        if (status === Project.Status.Dropped) { return "dropped"; }
+        if (status === Project.Status.Done) { return "done"; }
+        if (status === Project.Status.Active) { return "active"; }
+        return "unknown";
+      }
 
       var app = Application('OmniFocus');
       var doc = app.defaultDocument();
-      var projects = doc.flattenedProjects();
+      var statusFilter = (typeof request.statusFilter === "string") ? request.statusFilter.toLowerCase() : "active";
+      var includeTaskCounts = request.includeTaskCounts === true;
+      var reviewPerspective = request.reviewPerspective === true;
+      var reviewDueBefore = request.reviewDueBefore ? parseFilterDate(request.reviewDueBefore) : null;
+      var reviewDueAfter = request.reviewDueAfter ? parseFilterDate(request.reviewDueAfter) : null;
+      var reviewCutoff = reviewDueBefore || (reviewPerspective ? new Date() : null);
+      var completedAfter = request.completedAfter ? parseFilterDate(request.completedAfter) : null;
+      var completedBefore = request.completedBefore ? parseFilterDate(request.completedBefore) : null;
+      var completedOnly = request.completed === true;
+      var projects = toArray(safe(function() { return doc.flattenedProjects(); }) || safe(function() { return doc.flattenedProjects; }));
+
+      if (reviewPerspective) {
+        projects = projects.filter(function(project) {
+          var statusName = projectStatusName(project);
+          return statusName !== "dropped" && statusName !== "done";
+        });
+      } else if (statusFilter !== "all") {
+        projects = projects.filter(function(project) {
+          var statusName = projectStatusName(project);
+          if (statusFilter === "active") { return statusName === "active"; }
+          if (statusFilter === "onhold" || statusFilter === "on_hold") { return statusName === "onHold"; }
+          if (statusFilter === "dropped") { return statusName === "dropped"; }
+          if (statusFilter === "done" || statusFilter === "completed") { return statusName === "done"; }
+          return true;
+        });
+      }
+
+      if (reviewCutoff || reviewDueAfter) {
+        projects = projects.filter(function(project) {
+          var nextReview = getProjectDateTimestamp(project, function(item) { return item.nextReviewDate; });
+          if (nextReview === null) { return false; }
+          if (reviewCutoff && nextReview > reviewCutoff.getTime()) { return false; }
+          if (reviewDueAfter && nextReview < reviewDueAfter.getTime()) { return false; }
+          return true;
+        });
+      }
+
+      if (completedOnly || completedAfter || completedBefore) {
+        projects = projects.filter(function(project) {
+          if (projectStatusName(project) !== "done") { return false; }
+          var completionDate = getProjectDateTimestamp(project, function(item) { return item.completionDate; });
+          if (completionDate === null) { return false; }
+          if (completedAfter && completionDate < completedAfter.getTime()) { return false; }
+          if (completedBefore && completionDate > completedBefore.getTime()) { return false; }
+          return true;
+        });
+
+        projects.sort(function(lhs, rhs) {
+          var lhsDate = getProjectDateTimestamp(lhs, function(item) { return item.completionDate; }) || 0;
+          var rhsDate = getProjectDateTimestamp(rhs, function(item) { return item.completionDate; }) || 0;
+          return rhsDate - lhsDate;
+        });
+      }
+
       var total = projects.length;
       var slice = projects.slice(offset, offset + limit);
 
       var items = slice.map(function(p) {
-        var lastReviewDate = hasField("lastReviewDate") ? safe(function() { return p.lastReviewDate(); }) : null;
-        var nextReviewDate = hasField("nextReviewDate") ? safe(function() { return p.nextReviewDate(); }) : null;
-        var reviewInterval = hasField("reviewInterval") ? safe(function() { return p.reviewInterval(); }) : null;
+        var lastReviewDate = hasField("lastReviewDate") ? safe(function() { return p.lastReviewDate; }) : null;
+        var nextReviewDate = hasField("nextReviewDate") ? safe(function() { return p.nextReviewDate; }) : null;
+        var reviewInterval = hasField("reviewInterval") ? safe(function() { return p.reviewInterval; }) : null;
         var reviewIntervalPayload = null;
         if (reviewInterval) {
-          var steps = safe(function() { return reviewInterval.steps(); });
-          var unit = safe(function() { return reviewInterval.unit(); });
+          var steps = safe(function() { return reviewInterval.steps; });
+          var unit = safe(function() { return reviewInterval.unit; });
           reviewIntervalPayload = {
             steps: (typeof steps === "number" && isFinite(steps)) ? Math.trunc(steps) : null,
             unit: unit ? String(unit) : null
           };
         }
-
-        return {
-          id: hasField("id") ? String(safe(function() { return p.id(); }) || "") : null,
-          name: hasField("name") ? String(safe(function() { return p.name(); }) || "") : null,
-          note: hasField("note") ? safe(function() { return p.note(); }) : null,
-          status: hasField("status") ? String(safe(function() { return p.status(); }) || "") : null,
-          flagged: hasField("flagged") ? Boolean(safe(function() { return p.flagged(); })) : null,
+        var completionDate = hasField("completionDate") ? safe(function() { return p.completionDate; }) : null;
+        var item = {
+          id: hasField("id") ? String(safe(function() { return p.id.primaryKey; }) || "") : null,
+          name: hasField("name") ? String(safe(function() { return p.name; }) || "") : null,
+          note: hasField("note") ? safe(function() { return p.note; }) : null,
+          status: hasField("status") ? projectStatusName(p) : null,
+          flagged: hasField("flagged") ? Boolean(safe(function() { return p.flagged; })) : null,
           lastReviewDate: hasField("lastReviewDate") && lastReviewDate ? lastReviewDate.toISOString() : null,
           nextReviewDate: hasField("nextReviewDate") && nextReviewDate ? nextReviewDate.toISOString() : null,
-          reviewInterval: hasField("reviewInterval") ? reviewIntervalPayload : null
+          reviewInterval: hasField("reviewInterval") ? reviewIntervalPayload : null,
+          completionDate: hasField("completionDate") && completionDate ? completionDate.toISOString() : null
         };
+
+        if (includeTaskCounts || hasField("hasChildren") || hasField("nextTask") || hasField("isStalled")) {
+          var flattenedTasks = toArray(safe(function() { return p.flattenedTasks; }) || safe(function() { return p.flattenedTasks(); }));
+          if (includeTaskCounts) {
+            var available = 0;
+            var remaining = 0;
+            var completed = 0;
+            var dropped = 0;
+            for (var taskIndex = 0; taskIndex < flattenedTasks.length; taskIndex += 1) {
+              var taskStatus = taskStatusName(flattenedTasks[taskIndex]);
+              if (taskStatus === "completed") {
+                completed += 1;
+              } else if (taskStatus === "dropped") {
+                dropped += 1;
+              } else {
+                remaining += 1;
+                if (taskStatus === "available" || taskStatus === "next") {
+                  available += 1;
+                }
+              }
+            }
+            item.availableTasks = available;
+            item.remainingTasks = remaining;
+            item.completedTasks = completed;
+            item.droppedTasks = dropped;
+            item.totalTasks = flattenedTasks.length;
+          }
+          if (hasField("hasChildren")) {
+            item.hasChildren = flattenedTasks.length > 0;
+          }
+          if (hasField("nextTask")) {
+            var nextTask = safe(function() { return p.nextTask; });
+            item.nextTask = nextTask ? {
+              id: String(safe(function() { return nextTask.id.primaryKey; }) || ""),
+              name: String(safe(function() { return nextTask.name; }) || "")
+            } : null;
+          }
+          if (hasField("isStalled")) {
+            var nextTaskForStall = safe(function() { return p.nextTask; });
+            var isSingleActionsForStall = Boolean(safe(function() { return p.containsSingletonActions; }));
+            item.isStalled = flattenedTasks.length > 0 && !nextTaskForStall && !isSingleActionsForStall;
+          }
+        }
+        if (hasField("containsSingletonActions")) {
+          item.containsSingletonActions = Boolean(safe(function() { return p.containsSingletonActions; }));
+        }
+
+        return item;
       });
 
       var nextCursor = (offset + limit < total) ? String(offset + limit) : null;
-      return JSON.stringify({ items: items, nextCursor: nextCursor });
+      return JSON.stringify({ items: items, nextCursor: nextCursor, returnedCount: items.length, totalCount: total });
+    })();
+    """
+}
+
+private func listTagsScript(requestJSON: String) -> String {
+    return """
+    (function() {
+      var request = \(requestJSON);
+      var limit = (request.page && request.page.limit) ? request.page.limit : 50;
+      var offset = 0;
+      if (request.page && request.page.cursor) {
+        var parsed = parseInt(request.page.cursor, 10);
+        if (!isNaN(parsed) && parsed >= 0) { offset = parsed; }
+      }
+
+      function safe(fn) {
+        try { return fn(); } catch (e) { return null; }
+      }
+      function toArray(collection) {
+        if (!collection) { return []; }
+        if (Array.isArray(collection)) { return collection; }
+        if (typeof collection.apply === "function") {
+          var items = [];
+          collection.apply(function(item) { items.push(item); });
+          return items;
+        }
+        try {
+          return Array.from(collection);
+        } catch (e) {
+          return [];
+        }
+      }
+      function tagStatusName(tag) {
+        var status = safe(function() { return tag.status; }) || safe(function() { return tag.status(); });
+        if (!status) { return "active"; }
+        var statusText = String(status);
+        if (statusText.indexOf("OnHold") !== -1) { return "onHold"; }
+        if (statusText.indexOf("Dropped") !== -1) { return "dropped"; }
+        if (statusText.indexOf("Active") !== -1) { return "active"; }
+        if (typeof Tag !== "undefined" && Tag.Status) {
+          if (status === Tag.Status.OnHold) { return "onHold"; }
+          if (status === Tag.Status.Dropped) { return "dropped"; }
+          if (status === Tag.Status.Active) { return "active"; }
+        }
+        return "active";
+      }
+      function childTags(tag) {
+        return toArray(safe(function() { return tag.children; }) || safe(function() { return tag.children(); }));
+      }
+      function flattenedTags(doc) {
+        var result = [];
+        function visit(tag) {
+          result.push(tag);
+          var children = childTags(tag);
+          for (var i = 0; i < children.length; i += 1) {
+            visit(children[i]);
+          }
+        }
+        var roots = toArray(safe(function() { return doc.tags(); }) || safe(function() { return doc.tags; }));
+        for (var i = 0; i < roots.length; i += 1) {
+          visit(roots[i]);
+        }
+        return result;
+      }
+
+      var app = Application('OmniFocus');
+      var doc = app.defaultDocument();
+      var statusFilter = (typeof request.statusFilter === "string") ? request.statusFilter.toLowerCase() : "active";
+      var includeTaskCounts = request.includeTaskCounts === true;
+      var tags = flattenedTags(doc);
+
+      if (statusFilter !== "all") {
+        tags = tags.filter(function(tag) {
+          var statusName = tagStatusName(tag);
+          if (statusFilter === "active") { return statusName === "active"; }
+          if (statusFilter === "onhold" || statusFilter === "on_hold") { return statusName === "onHold"; }
+          if (statusFilter === "dropped") { return statusName === "dropped"; }
+          return true;
+        });
+      }
+
+      var total = tags.length;
+      var slice = tags.slice(offset, offset + limit);
+      var items = slice.map(function(tag) {
+        var item = {
+          id: String(safe(function() { return tag.id.primaryKey; }) || ""),
+          name: String(safe(function() { return tag.name; }) || ""),
+          status: tagStatusName(tag)
+        };
+
+        if (includeTaskCounts) {
+          var availableTasks = toArray(safe(function() { return tag.availableTasks; }) || safe(function() { return tag.availableTasks(); }));
+          var remainingTasks = toArray(safe(function() { return tag.remainingTasks; }) || safe(function() { return tag.remainingTasks(); }));
+          var totalTasks = toArray(safe(function() { return tag.tasks; }) || safe(function() { return tag.tasks(); }));
+          item.availableTasks = availableTasks.length;
+          item.remainingTasks = remainingTasks.length;
+          item.totalTasks = totalTasks.length;
+        }
+
+        return item;
+      });
+
+      var nextCursor = (offset + limit < total) ? String(offset + limit) : null;
+      return JSON.stringify({ items: items, nextCursor: nextCursor, returnedCount: items.length, totalCount: total });
     })();
     """
 }
