@@ -33,7 +33,7 @@ struct BenchmarkListTags: AsyncParsableCommand {
         let outputURL = try benchmarkOutputDirectory(defaultPrefix: "list-tags", customPath: outputDir)
         let rawURL = outputURL.appendingPathComponent("raw.jsonl")
         let summaryURL = outputURL.appendingPathComponent("summary.md")
-        benchmarkInitializeFiles(rawURL)
+        try benchmarkInitializeFiles(rawURL)
 
         print("Benchmark output directory: \(outputURL.path)")
         print("Scenarios: \(scenarios.map(\.name).joined(separator: ", "))")
@@ -171,7 +171,7 @@ private func listTagBenchCall(
             lastItemID: nil
         )
         try benchmarkAppendJSONLine(event, to: rawURL)
-        try await benchmarkCooldownIfNeeded(timeout: timeout, cooldownMS: cooldownMS)
+        try await benchmarkCooldownIfNeeded(cooldownMS: cooldownMS)
         try await benchmarkEnforceInterval(started: started, intervalMS: intervalMS)
         return event
     }

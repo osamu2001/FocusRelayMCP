@@ -100,3 +100,39 @@ func projectBenchmarkSourcesUseChildrenScenario() throws {
     #expect(gateCheck.contains("active_counts_children"))
     #expect(!gateCheck.contains("active_counts_stalled"))
 }
+
+@Test
+func benchmarkInitializeFilesTruncatesExistingContents() throws {
+    let directoryURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+    try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+    let rawURL = directoryURL.appendingPathComponent("raw.jsonl")
+    try "stale-data\n".write(to: rawURL, atomically: true, encoding: .utf8)
+
+    try benchmarkInitializeFiles(rawURL)
+
+    let data = try Data(contentsOf: rawURL)
+    #expect(data.isEmpty)
+}
+
+@Test
+func benchmarkCooldownAppliesWithoutTimeoutFlag() async throws {
+    let started = ContinuousClock.now
+    try await benchmarkCooldownIfNeeded(cooldownMS: 25)
+    let elapsed = started.duration(to: .now)
+    #expect(elapsed >= .milliseconds(15))
+}
+
+@Test
+func bridgeHealthBenchmarkCoolsDownWhenBridgeReportsUnhealthy() throws {
+    let source = try String(contentsOfFile: "Sources/FocusRelayCLI/BenchmarkBridgeHealthCommand.swift", encoding: .utf8)
+    let projectsSource = try String(contentsOfFile: "Sources/FocusRelayCLI/BenchmarkListProjectsCommand.swift", encoding: .utf8)
+    let tagsSource = try String(contentsOfFile: "Sources/FocusRelayCLI/BenchmarkListTagsCommand.swift", encoding: .utf8)
+
+    #expect(source.contains("if !result.ok {"))
+    #expect(source.contains("benchmarkCooldownIfNeeded(cooldownMS: cooldownMS)"))
+    #expect(projectsSource.contains("benchmarkCooldownIfNeeded(cooldownMS: cooldownMS)"))
+    #expect(tagsSource.contains("benchmarkCooldownIfNeeded(cooldownMS: cooldownMS)"))
+    #expect(!source.contains("benchmarkCooldownIfNeeded(timeout: timeout, cooldownMS: cooldownMS)"))
+}

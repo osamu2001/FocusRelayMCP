@@ -41,9 +41,14 @@ func benchmarkOutputDirectory(defaultPrefix: String, customPath: String?) throws
     return base
 }
 
-func benchmarkInitializeFiles(_ urls: URL...) {
+func benchmarkInitializeFiles(_ urls: URL...) throws {
     for url in urls {
-        FileManager.default.createFile(atPath: url.path, contents: nil)
+        if !FileManager.default.fileExists(atPath: url.path) {
+            FileManager.default.createFile(atPath: url.path, contents: nil)
+        }
+        let handle = try FileHandle(forWritingTo: url)
+        try handle.truncate(atOffset: 0)
+        try handle.close()
     }
 }
 
@@ -113,7 +118,7 @@ func benchmarkEnforceInterval(started: Date, intervalMS: Int) async throws {
     }
 }
 
-func benchmarkCooldownIfNeeded(timeout: Bool, cooldownMS: Int) async throws {
-    guard timeout, cooldownMS > 0 else { return }
+func benchmarkCooldownIfNeeded(cooldownMS: Int) async throws {
+    guard cooldownMS > 0 else { return }
     try await Task.sleep(nanoseconds: UInt64(cooldownMS) * 1_000_000)
 }
