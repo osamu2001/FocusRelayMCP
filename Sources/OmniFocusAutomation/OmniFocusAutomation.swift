@@ -19,6 +19,27 @@ public enum AutomationError: Error, LocalizedError {
     }
 }
 
+private final class LockedValue<Value>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: Value
+
+    init(_ value: Value) {
+        self.value = value
+    }
+
+    func set(_ newValue: Value) {
+        lock.lock()
+        value = newValue
+        lock.unlock()
+    }
+
+    func get() -> Value {
+        lock.lock()
+        defer { lock.unlock() }
+        return value
+    }
+}
+
 public final class ScriptRunner: Sendable {
     private let osaKitExecutor: @Sendable (String) throws -> String
     private let osaScriptExecutor: @Sendable (String) throws -> String
@@ -86,14 +107,43 @@ public final class ScriptRunner: Sendable {
         } catch {
             throw AutomationError.executionFailed("Failed to launch osascript: \(error.localizedDescription)")
         }
-        process.waitUntilExit()
+        return try collectOSAScriptResult(
+            waitUntilExit: { process.waitUntilExit() },
+            terminationStatus: { process.terminationStatus },
+            readStdout: { stdout.fileHandleForReading.readDataToEndOfFile() },
+            readStderr: { stderr.fileHandleForReading.readDataToEndOfFile() }
+        )
+    }
 
-        let outputData = stdout.fileHandleForReading.readDataToEndOfFile()
-        let errorData = stderr.fileHandleForReading.readDataToEndOfFile()
-        let output = String(decoding: outputData, as: UTF8.self)
-        let errorOutput = String(decoding: errorData, as: UTF8.self)
+    static func collectOSAScriptResult(
+        waitUntilExit: @escaping @Sendable () -> Void,
+        terminationStatus: @escaping @Sendable () -> Int32,
+        readStdout: @escaping @Sendable () -> Data,
+        readStderr: @escaping @Sendable () -> Data
+    ) throws -> String {
+        let outputData = LockedValue(Data())
+        let errorData = LockedValue(Data())
+        let group = DispatchGroup()
 
-        guard process.terminationStatus == 0 else {
+        group.enter()
+        DispatchQueue.global(qos: .userInitiated).async {
+            outputData.set(readStdout())
+            group.leave()
+        }
+
+        group.enter()
+        DispatchQueue.global(qos: .userInitiated).async {
+            errorData.set(readStderr())
+            group.leave()
+        }
+
+        waitUntilExit()
+        group.wait()
+
+        let output = String(decoding: outputData.get(), as: UTF8.self)
+        let errorOutput = String(decoding: errorData.get(), as: UTF8.self)
+
+        guard terminationStatus() == 0 else {
             let message = errorOutput.isEmpty ? output : errorOutput
             throw AutomationError.executionFailed(message)
         }
