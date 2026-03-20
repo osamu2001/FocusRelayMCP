@@ -1011,12 +1011,74 @@
           const filter = request.tagFilter || request.filter || {};
           const statusFilter = (typeof filter.statusFilter === "string") ? filter.statusFilter.toLowerCase() : "active";
           const includeTaskCounts = filter.includeTaskCounts === true;
-          
-          let tags = flattenedTags;
+
+          function getEntityPrimaryKey(entity) {
+            return String(safe(() => entity.id.primaryKey) || "");
+          }
+
+          function getTagChildren(tag) {
+            return safe(() => tag.children) || [];
+          }
+
+          function pushUnique(items, seen, item) {
+            const key = getEntityPrimaryKey(item);
+            if (key && seen[key]) { return; }
+            if (key) { seen[key] = true; }
+            items.push(item);
+          }
+
+          function collectAllTags() {
+            const flattened = safe(() => flattenedTags) || [];
+            if (flattened.length > 0) {
+              const seen = {};
+              const result = [];
+              for (const tag of flattened) {
+                pushUnique(result, seen, tag);
+              }
+              return result;
+            }
+
+            const rootTags = safe(() => tags) || [];
+            const seen = {};
+            const result = [];
+            const visit = (tag) => {
+              pushUnique(result, seen, tag);
+              for (const child of getTagChildren(tag)) {
+                visit(child);
+              }
+            };
+            for (const tag of rootTags) {
+              visit(tag);
+            }
+            return result;
+          }
+
+          function collectTasksForTag(tag) {
+            const flattened = safe(() => tag.flattenedTasks) || [];
+            if (flattened.length > 0) {
+              return flattened;
+            }
+
+            const seen = {};
+            const result = [];
+            const pushTask = (task) => pushUnique(result, seen, task);
+            const visit = (currentTag) => {
+              for (const task of (safe(() => currentTag.tasks) || [])) {
+                pushTask(task);
+              }
+              for (const child of getTagChildren(currentTag)) {
+                visit(child);
+              }
+            };
+            visit(tag);
+            return result;
+          }
+
+          let tagItems = collectAllTags();
           
           // Filter by status
           if (statusFilter !== "all") {
-            tags = tags.filter(tag => {
+            tagItems = tagItems.filter(tag => {
               const status = safe(() => tag.status);
               if (!status) return false;
               
@@ -1038,7 +1100,7 @@
             if (!isNaN(parsed) && parsed >= 0) { offset = parsed; }
           }
           
-          const slice = tags.slice(offset, offset + limit);
+          const slice = tagItems.slice(offset, offset + limit);
           const items = slice.map(tag => {
             // Convert Tag.Status enum to string - check directly on tag object
             function getTagStatusString(tag) {
@@ -1060,23 +1122,34 @@
               name: String(safe(() => tag.name) || ""),
               status: getTagStatusString(tag)
             };
-            
-            // Get task counts using OmniFocus built-in properties
-            // Note: Per documentation, cleanUp() should be called for accurate counts
-            const availableTasks = safe(() => tag.availableTasks);
-            const remainingTasks = safe(() => tag.remainingTasks);
-            const allTasks = safe(() => tag.tasks);
-            
-            item.availableTasks = availableTasks ? availableTasks.length : 0;
-            item.remainingTasks = remainingTasks ? remainingTasks.length : 0;
-            item.totalTasks = allTasks ? allTasks.length : 0;
+
+            if (includeTaskCounts) {
+              const tagTasks = collectTasksForTag(tag);
+              let availableTasks = 0;
+              let remainingTasks = 0;
+
+              for (const task of tagTasks) {
+                const status = taskStatus(task);
+                if (isCompletedStatusValue(status) || isDroppedStatusValue(status)) {
+                  continue;
+                }
+                remainingTasks++;
+                if (isAvailableStatusValue(status)) {
+                  availableTasks++;
+                }
+              }
+
+              item.availableTasks = availableTasks;
+              item.remainingTasks = remainingTasks;
+              item.totalTasks = tagTasks.length;
+            }
             
             return item;
           });
           
-          const nextCursor = (offset + limit < tags.length) ? String(offset + limit) : null;
+          const nextCursor = (offset + limit < tagItems.length) ? String(offset + limit) : null;
           const returnedCount = items.length;
-          response.data = { items: items, nextCursor: nextCursor, returnedCount: returnedCount, totalCount: tags.length };
+          response.data = { items: items, nextCursor: nextCursor, returnedCount: returnedCount, totalCount: tagItems.length };
         } else if (request.op === "get_task") {
           const fields = request.fields || [];
           const taskId = request.id;
