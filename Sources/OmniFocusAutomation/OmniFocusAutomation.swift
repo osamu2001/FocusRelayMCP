@@ -395,7 +395,6 @@ private func listTasksOmniAutomationScript(requestJSON: String) -> String {
       function safe(fn) {
         try { return fn(); } catch (e) { return null; }
       }
-
       function toTaskArray(collection) {
         if (!collection) { return []; }
         if (Array.isArray(collection)) { return collection; }
@@ -777,6 +776,13 @@ private func listProjectsOmniAutomationScript(requestJSON: String) -> String {
       function safe(fn) {
         try { return fn(); } catch (e) { return null; }
       }
+      function requireSupported(label, fn) {
+        try {
+          return fn();
+        } catch (e) {
+          throw new Error("Unsupported Omni Automation project field: " + label);
+        }
+      }
       function toArray(collection) {
         if (!collection) { return []; }
         if (Array.isArray(collection)) { return collection; }
@@ -949,21 +955,26 @@ private func listProjectsOmniAutomationScript(requestJSON: String) -> String {
           if (hasField("hasChildren")) {
             item.hasChildren = flattenedTasks.length > 0;
           }
+          var nextTaskValue = null;
+          var nextTaskResolved = false;
           if (hasField("nextTask")) {
-            var nextTask = safe(function() { return p.nextTask; });
+            var nextTask = requireSupported("nextTask", function() { return p.nextTask; });
+            nextTaskValue = nextTask;
+            nextTaskResolved = true;
             item.nextTask = nextTask ? {
               id: String(safe(function() { return nextTask.id.primaryKey; }) || ""),
               name: String(safe(function() { return nextTask.name; }) || "")
             } : null;
           }
           if (hasField("isStalled")) {
-            var nextTaskForStall = safe(function() { return p.nextTask; });
-            var isSingleActionsForStall = Boolean(safe(function() { return p.containsSingletonActions; }));
+            var nextTaskForStall = nextTaskResolved ? nextTaskValue : requireSupported("nextTask", function() { return p.nextTask; });
+            var singletonRawForStall = requireSupported("containsSingletonActions", function() { return p.containsSingletonActions; });
+            var isSingleActionsForStall = Boolean(singletonRawForStall);
             item.isStalled = flattenedTasks.length > 0 && !nextTaskForStall && !isSingleActionsForStall;
           }
         }
         if (hasField("containsSingletonActions")) {
-          item.containsSingletonActions = Boolean(safe(function() { return p.containsSingletonActions; }));
+          item.containsSingletonActions = Boolean(requireSupported("containsSingletonActions", function() { return p.containsSingletonActions; }));
         }
 
         return item;
