@@ -1,4 +1,5 @@
 import Testing
+import Foundation
 @testable import OmniFocusAutomation
 @testable import OmniFocusCore
 
@@ -47,4 +48,14 @@ func listTagsScriptDerivesCountsFromTaskStatus() async throws {
     #expect(source.contains("currentTag.tasks"))
     #expect(source.contains("task.taskStatus"))
     #expect(source.contains("isActionableTaskStatus(statusName)"))
+}
+
+@Test
+func bridgeListTagsUsesDocumentedCountDerivation() throws {
+    let source = try String(contentsOfFile: "Plugin/FocusRelayBridge.omnijs/Resources/BridgeLibrary.js", encoding: .utf8)
+
+    #expect(source.contains("function collectAllTags()"))
+    #expect(source.contains("function collectTasksForTag(tag)"))
+    #expect(source.contains("safe(() => tag.flattenedTasks)"))
+    #expect(source.contains("isAvailableStatusValue(status)"))
 }
