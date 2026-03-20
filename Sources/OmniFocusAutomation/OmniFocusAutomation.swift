@@ -1021,6 +1021,17 @@ private func listTagsOmniAutomationScript(requestJSON: String) -> String {
       function safe(fn) {
         try { return fn(); } catch (e) { return null; }
       }
+      function requireTagSupported(label, fn) {
+        try {
+          var value = fn();
+          if (value === null || typeof value === "undefined") {
+            throw new Error("missing");
+          }
+          return value;
+        } catch (e) {
+          throw new Error("Unsupported Omni Automation tag field: " + label);
+        }
+      }
       function toArray(collection) {
         if (!collection) { return []; }
         if (Array.isArray(collection)) { return collection; }
@@ -1036,8 +1047,11 @@ private func listTagsOmniAutomationScript(requestJSON: String) -> String {
         }
       }
       function tagStatusName(tag) {
-        var status = safe(function() { return tag.status; }) || safe(function() { return tag.status(); });
-        if (!status) { return "active"; }
+        var status = requireTagSupported("status", function() {
+          var value = safe(function() { return tag.status; });
+          if (value !== null && typeof value !== "undefined") { return value; }
+          return tag.status();
+        });
         var statusText = String(status);
         if (statusText.indexOf("OnHold") !== -1) { return "onHold"; }
         if (statusText.indexOf("Dropped") !== -1) { return "dropped"; }
@@ -1047,7 +1061,7 @@ private func listTagsOmniAutomationScript(requestJSON: String) -> String {
           if (status === Tag.Status.Dropped) { return "dropped"; }
           if (status === Tag.Status.Active) { return "active"; }
         }
-        return "active";
+        throw new Error("Unsupported Omni Automation tag status value");
       }
       function allTags() {
         var flat = toArray(safe(function() { return flattenedTags; }));
