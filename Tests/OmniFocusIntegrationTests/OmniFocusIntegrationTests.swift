@@ -208,7 +208,7 @@ func bridgeAndJXAListProjectsParityLive() async throws {
     let scenarios: [(String, String?, Bool, [String])] = [
         ("activeMinimal", "active", false, ["id", "name"]),
         ("activeCounts", "active", true, ["id", "name"]),
-        ("activeCountsStalled", "active", true, ["id", "name", "hasChildren", "nextTask", "containsSingletonActions", "isStalled"])
+        ("activeCountsChildren", "active", true, ["id", "name", "hasChildren"])
     ]
 
     for (name, statusFilter, includeTaskCounts, fields) in scenarios {

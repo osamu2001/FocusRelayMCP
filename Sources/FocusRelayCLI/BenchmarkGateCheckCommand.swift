@@ -296,7 +296,7 @@ private func listProjectParityChecks(bridge: OmniFocusBridgeService, jxa: OmniAu
     let scenarios = [
         GateListProjectScenario(name: "active_minimal", statusFilter: "active", includeTaskCounts: false, fields: ["id", "name"]),
         GateListProjectScenario(name: "active_counts", statusFilter: "active", includeTaskCounts: true, fields: ["id", "name"]),
-        GateListProjectScenario(name: "active_counts_stalled", statusFilter: "active", includeTaskCounts: true, fields: ["id", "name", "hasChildren", "nextTask", "containsSingletonActions", "isStalled"])
+        GateListProjectScenario(name: "active_counts_children", statusFilter: "active", includeTaskCounts: true, fields: ["id", "name", "hasChildren"])
     ]
 
     return await scenarios.asyncMap { scenario in

@@ -89,3 +89,14 @@ func tagRowSignatureIncludesStatusAndCountsWhenRequested() {
     #expect(gateTagRowSignature(base, includeTaskCounts: false) != gateTagRowSignature(statusChanged, includeTaskCounts: false))
     #expect(gateTagRowSignature(base, includeTaskCounts: true) != gateTagRowSignature(countChanged, includeTaskCounts: true))
 }
+
+@Test
+func projectBenchmarkSourcesUseChildrenScenario() throws {
+    let benchmarkProjects = try String(contentsOfFile: "Sources/FocusRelayCLI/BenchmarkListProjectsCommand.swift", encoding: .utf8)
+    let gateCheck = try String(contentsOfFile: "Sources/FocusRelayCLI/BenchmarkGateCheckCommand.swift", encoding: .utf8)
+
+    #expect(benchmarkProjects.contains("active_counts_children"))
+    #expect(!benchmarkProjects.contains("active_counts_stalled"))
+    #expect(gateCheck.contains("active_counts_children"))
+    #expect(!gateCheck.contains("active_counts_stalled"))
+}

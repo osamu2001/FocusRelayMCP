@@ -139,10 +139,10 @@ private func listProjectBenchmarkScenarios() -> [ListProjectBenchmarkScenario] {
             fields: ["id", "name"]
         ),
         ListProjectBenchmarkScenario(
-            name: "active_counts_stalled",
+            name: "active_counts_children",
             statusFilter: "active",
             includeTaskCounts: true,
-            fields: ["id", "name", "hasChildren", "nextTask", "containsSingletonActions", "isStalled"]
+            fields: ["id", "name", "hasChildren"]
         )
     ]
 }
