@@ -398,7 +398,7 @@ public enum FocusRelayServer {
                     return .init(content: [.text("debug_inbox_probe_alt is only available in JXA mode")], isError: true)
                 case "bridge_health_check":
                     let bridge = OmniFocusBridgeService()
-                    let result = try bridge.healthCheck()
+                    let result = try await bridge.healthCheck()
                     return .init(content: [.text(try encodeJSON(result))])
                 default:
                     return .init(content: [.text("Unknown tool: \(params.name)")], isError: true)

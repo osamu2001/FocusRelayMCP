@@ -118,7 +118,7 @@ private struct GateListTagScenario {
 
 private func checkBridgeHealth(using service: OmniFocusBridgeService) async -> GateCheck {
     do {
-        let result = try service.healthCheck()
+        let result = try await service.healthCheck()
         return GateCheck(
             name: "bridge_health",
             ok: result.ok,

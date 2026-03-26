@@ -375,7 +375,7 @@ private func runProjectBenchCall(
             try? await Task.sleep(nanoseconds: UInt64(cooldownMS) * 1_000_000)
         }
         if isTimeout {
-            let diagnostic = captureProjectTimeoutDiagnostic(
+            let diagnostic = await captureProjectTimeoutDiagnostic(
                 transport: transport,
                 scenario: scenario,
                 phase: phase,
@@ -407,7 +407,7 @@ private func runTimeoutRecoveryGate() async {
         try? await Task.sleep(nanoseconds: UInt64(recoveryMs) * 1_000_000)
     }
     // Lightweight readiness probe before resuming to reduce timeout cascades.
-    _ = try? OmniFocusBridgeService().healthCheck()
+    _ = try? await OmniFocusBridgeService().healthCheck()
 }
 
 private func enforceInterval(start: Date, intervalMS: Int) async throws {
@@ -605,7 +605,7 @@ private func captureProjectTimeoutDiagnostic(
     callIndex: Int,
     latencyMs: Double,
     errorMessage: String
-) -> ProjectTimeoutDiagnostic {
+) async -> ProjectTimeoutDiagnostic {
     let requestID = extractRequestID(from: errorMessage)
     let baseURL = defaultIPCBaseURL()
     let requestsURL = baseURL.appendingPathComponent("requests", isDirectory: true)
@@ -627,7 +627,7 @@ private func captureProjectTimeoutDiagnostic(
     let benchmarkPID = ProcessInfo.processInfo.processIdentifier
     let bridgeHealth: TimeoutBridgeHealthSnapshot?
     if transport == .plugin {
-        if let result = try? OmniFocusBridgeService().healthCheck() {
+        if let result = try? await OmniFocusBridgeService().healthCheck() {
             bridgeHealth = TimeoutBridgeHealthSnapshot(
                 ok: result.ok,
                 detail: "plugin=\(result.plugin ?? "unknown") version=\(result.version ?? "unknown")"
