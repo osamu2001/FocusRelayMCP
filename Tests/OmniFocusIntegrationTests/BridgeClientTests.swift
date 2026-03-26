@@ -106,3 +106,97 @@ func lateStrandedRecoveryOnlyAppliesToURLTransportWithoutLock() {
         lockExists: false
     ))
 }
+
+@Test
+func staleCleanupIfNeededRunsImmediatelyThenThrottles() throws {
+    let tempRoot = try makeTemporaryIPCBaseURL()
+    defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+    let client = BridgeClient(
+        paths: IPCPaths(baseURL: tempRoot),
+        fileManager: .default,
+        staleInterval: 10,
+        configuration: .fromEnvironment([:])
+    )
+
+    let start = Date(timeIntervalSince1970: 1_000)
+    #expect(client.shouldRunStaleCleanup(now: start))
+    #expect(!client.shouldRunStaleCleanup(now: start.addingTimeInterval(5)))
+    #expect(client.shouldRunStaleCleanup(now: start.addingTimeInterval(10)))
+}
+
+@Test
+func cleanupStaleFilesRemovesExpiredIPCArtifacts() throws {
+    let tempRoot = try makeTemporaryIPCBaseURL()
+    defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+    let paths = IPCPaths(baseURL: tempRoot)
+    let fileManager = FileManager.default
+    try [paths.requestsURL, paths.responsesURL, paths.locksURL].forEach {
+        try fileManager.createDirectory(at: $0, withIntermediateDirectories: true)
+    }
+
+    let now = Date(timeIntervalSince1970: 10_000)
+    let staleDate = now.addingTimeInterval(-700)
+    let staleRequest = try makeIPCArtifact(at: paths.requestsURL, named: "old-request.json", modifiedAt: staleDate)
+    let staleResponse = try makeIPCArtifact(at: paths.responsesURL, named: "old-response.json", modifiedAt: staleDate)
+    let staleLock = try makeIPCArtifact(at: paths.locksURL, named: "old.lock", modifiedAt: staleDate)
+
+    let client = BridgeClient(
+        paths: paths,
+        fileManager: fileManager,
+        staleInterval: 600,
+        configuration: .fromEnvironment([:])
+    )
+
+    client.cleanupStaleFiles(now: now)
+
+    #expect(!fileManager.fileExists(atPath: staleRequest.path))
+    #expect(!fileManager.fileExists(atPath: staleResponse.path))
+    #expect(!fileManager.fileExists(atPath: staleLock.path))
+}
+
+@Test
+func cleanupStaleFilesKeepsFreshIPCArtifacts() throws {
+    let tempRoot = try makeTemporaryIPCBaseURL()
+    defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+    let paths = IPCPaths(baseURL: tempRoot)
+    let fileManager = FileManager.default
+    try [paths.requestsURL, paths.responsesURL, paths.locksURL].forEach {
+        try fileManager.createDirectory(at: $0, withIntermediateDirectories: true)
+    }
+
+    let now = Date(timeIntervalSince1970: 20_000)
+    let freshDate = now.addingTimeInterval(-30)
+    let freshRequest = try makeIPCArtifact(at: paths.requestsURL, named: "fresh-request.json", modifiedAt: freshDate)
+    let freshResponse = try makeIPCArtifact(at: paths.responsesURL, named: "fresh-response.json", modifiedAt: freshDate)
+    let freshLock = try makeIPCArtifact(at: paths.locksURL, named: "fresh.lock", modifiedAt: freshDate)
+
+    let client = BridgeClient(
+        paths: paths,
+        fileManager: fileManager,
+        staleInterval: 600,
+        configuration: .fromEnvironment([:])
+    )
+
+    client.cleanupStaleFiles(now: now)
+
+    #expect(fileManager.fileExists(atPath: freshRequest.path))
+    #expect(fileManager.fileExists(atPath: freshResponse.path))
+    #expect(fileManager.fileExists(atPath: freshLock.path))
+}
+
+private func makeTemporaryIPCBaseURL() throws -> URL {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    return root
+}
+
+private func makeIPCArtifact(at directory: URL, named name: String, modifiedAt: Date) throws -> URL {
+    let url = directory.appendingPathComponent(name)
+    try Data("test".utf8).write(to: url)
+    try FileManager.default.setAttributes([.modificationDate: modifiedAt], ofItemAtPath: url.path)
+    return url
+}
