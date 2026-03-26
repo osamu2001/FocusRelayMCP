@@ -19,10 +19,65 @@ public enum AutomationError: Error, LocalizedError {
     }
 }
 
+private final class LockedValue<Value>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: Value
+
+    init(_ value: Value) {
+        self.value = value
+    }
+
+    func set(_ newValue: Value) {
+        lock.lock()
+        value = newValue
+        lock.unlock()
+    }
+
+    func get() -> Value {
+        lock.lock()
+        defer { lock.unlock() }
+        return value
+    }
+}
+
 public final class ScriptRunner: Sendable {
-    public init() {}
+    private let osaKitExecutor: @Sendable (String) throws -> String
+    private let osaScriptExecutor: @Sendable (String) throws -> String
+
+    public init() {
+        self.osaKitExecutor = Self.runWithOSAKit
+        self.osaScriptExecutor = Self.runWithOSAScript
+    }
+
+    init(
+        osaKitExecutor: @escaping @Sendable (String) throws -> String,
+        osaScriptExecutor: @escaping @Sendable (String) throws -> String
+    ) {
+        self.osaKitExecutor = osaKitExecutor
+        self.osaScriptExecutor = osaScriptExecutor
+    }
 
     public func runJavaScript(_ source: String) throws -> String {
+        do {
+            return try osaKitExecutor(source)
+        } catch let error as AutomationError {
+            guard Self.shouldFallbackToOSAScript(after: error) else {
+                throw error
+            }
+            return try osaScriptExecutor(source)
+        }
+    }
+
+    static func shouldFallbackToOSAScript(after error: AutomationError) -> Bool {
+        guard case .executionFailed(let message) = error else {
+            return false
+        }
+        return message.contains("OSAScriptErrorNumberKey = \"-1743\"")
+            || message.contains("OSAScriptErrorNumberKey = -1743")
+            || message.localizedCaseInsensitiveContains("not authorized to send Apple events")
+    }
+
+    private static func runWithOSAKit(_ source: String) throws -> String {
         guard let language = OSALanguage(forName: "JavaScript") else {
             throw AutomationError.scriptCreationFailed
         }
@@ -35,6 +90,65 @@ public final class ScriptRunner: Sendable {
         }
 
         return output?.stringValue ?? ""
+    }
+
+    private static func runWithOSAScript(_ source: String) throws -> String {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+        process.arguments = ["-l", "JavaScript", "-e", source]
+
+        let stdout = Pipe()
+        let stderr = Pipe()
+        process.standardOutput = stdout
+        process.standardError = stderr
+
+        do {
+            try process.run()
+        } catch {
+            throw AutomationError.executionFailed("Failed to launch osascript: \(error.localizedDescription)")
+        }
+        return try collectOSAScriptResult(
+            waitUntilExit: { process.waitUntilExit() },
+            terminationStatus: { process.terminationStatus },
+            readStdout: { stdout.fileHandleForReading.readDataToEndOfFile() },
+            readStderr: { stderr.fileHandleForReading.readDataToEndOfFile() }
+        )
+    }
+
+    static func collectOSAScriptResult(
+        waitUntilExit: @escaping @Sendable () -> Void,
+        terminationStatus: @escaping @Sendable () -> Int32,
+        readStdout: @escaping @Sendable () -> Data,
+        readStderr: @escaping @Sendable () -> Data
+    ) throws -> String {
+        let outputData = LockedValue(Data())
+        let errorData = LockedValue(Data())
+        let group = DispatchGroup()
+
+        group.enter()
+        DispatchQueue.global(qos: .userInitiated).async {
+            outputData.set(readStdout())
+            group.leave()
+        }
+
+        group.enter()
+        DispatchQueue.global(qos: .userInitiated).async {
+            errorData.set(readStderr())
+            group.leave()
+        }
+
+        waitUntilExit()
+        group.wait()
+
+        let output = String(decoding: outputData.get(), as: UTF8.self)
+        let errorOutput = String(decoding: errorData.get(), as: UTF8.self)
+
+        guard terminationStatus() == 0 else {
+            let message = errorOutput.isEmpty ? output : errorOutput
+            throw AutomationError.executionFailed(message)
+        }
+
+        return output.trimmingCharacters(in: .newlines)
     }
 }
 
@@ -148,6 +262,8 @@ public final class OmniAutomationService: OmniFocusService {
                 totalTasks: payload.totalTasks,
                 hasChildren: payload.hasChildren,
                 nextTask: nextTask,
+                containsSingletonActions: payload.containsSingletonActions,
+                isStalled: payload.isStalled,
                 completionDate: payload.completionDate
             )
         }
@@ -155,8 +271,27 @@ public final class OmniAutomationService: OmniFocusService {
     }
 
     public func listTags(page: PageRequest, statusFilter: String?, includeTaskCounts: Bool) async throws -> Page<TagItem> {
-        _ = runner
-        throw AutomationError.notImplemented
+        let request = ListTagsRequest(page: page, statusFilter: statusFilter, includeTaskCounts: includeTaskCounts)
+        let requestData = try requestEncoder.encode(request)
+        guard let requestJSON = String(data: requestData, encoding: .utf8) else {
+            throw AutomationError.executionFailed("Failed to encode request JSON")
+        }
+
+        let script = listTagsScript(requestJSON: requestJSON)
+        let output = try runner.runJavaScript(script)
+        let data = Data(output.utf8)
+        let payloadPage = try decoder.decode(Page<TagItemPayload>.self, from: data)
+        let items = payloadPage.items.map { payload in
+            TagItem(
+                id: payload.id ?? "",
+                name: payload.name ?? "",
+                status: payload.status,
+                availableTasks: payload.availableTasks,
+                remainingTasks: payload.remainingTasks,
+                totalTasks: payload.totalTasks
+            )
+        }
+        return Page(items: items, nextCursor: payloadPage.nextCursor, returnedCount: payloadPage.returnedCount, totalCount: payloadPage.totalCount)
     }
 
     public func getTaskCounts(filter: TaskFilter) async throws -> TaskCounts {
@@ -218,6 +353,12 @@ private struct ListProjectsRequest: Codable {
     let completedBefore: Date?
     let completedAfter: Date?
     let fields: [String]?
+}
+
+private struct ListTagsRequest: Codable {
+    let page: PageRequest
+    let statusFilter: String?
+    let includeTaskCounts: Bool
 }
 
 private struct TaskCountsRequest: Codable {
@@ -300,11 +441,9 @@ private func listTasksOmniAutomationScript(requestJSON: String) -> String {
       function hasField(name) {
         return fields.length === 0 || fields.indexOf(name) !== -1;
       }
-
       function safe(fn) {
         try { return fn(); } catch (e) { return null; }
       }
-
       function toTaskArray(collection) {
         if (!collection) { return []; }
         if (Array.isArray(collection)) { return collection; }
@@ -649,6 +788,27 @@ private func listTasksOmniAutomationScript(requestJSON: String) -> String {
 }
 
 private func listProjectsScript(requestJSON: String) -> String {
+    let automationScript = listProjectsOmniAutomationScript(requestJSON: requestJSON)
+    return """
+    (function() {
+      var app = Application('OmniFocus');
+      var script = \(jsStringLiteral(automationScript));
+      var result = app.evaluateJavascript(script);
+      if (Array.isArray(result)) {
+        if (result.length === 0 || result[0] === null || typeof result[0] === "undefined") {
+          return "";
+        }
+        return String(result[0]);
+      }
+      if (result === null || typeof result === "undefined") {
+        return "";
+      }
+      return String(result);
+    })();
+    """
+}
+
+private func listProjectsOmniAutomationScript(requestJSON: String) -> String {
     return """
     (function() {
       var request = \(requestJSON);
@@ -662,44 +822,452 @@ private func listProjectsScript(requestJSON: String) -> String {
       function hasField(name) {
         return fields.length === 0 || fields.indexOf(name) !== -1;
       }
+      function hasExplicitField(name) {
+        return fields.indexOf(name) !== -1;
+      }
       function safe(fn) {
         try { return fn(); } catch (e) { return null; }
       }
+      function requireDefinedProjectField(label, fn) {
+        try {
+          var value = fn();
+          if (typeof value === "undefined") {
+            throw new Error("Undefined Omni Automation project field");
+          }
+          return value;
+        } catch (e) {
+          throw new Error("Unsupported Omni Automation project field: " + label);
+        }
+      }
+      function requireBooleanProjectField(label, fn) {
+        var value = requireDefinedProjectField(label, fn);
+        if (value === null) {
+          throw new Error("Unsupported Omni Automation project field: " + label);
+        }
+        return value;
+      }
+      function toArray(collection) {
+        if (!collection) { return []; }
+        if (Array.isArray(collection)) { return collection; }
+        if (typeof collection.apply === "function") {
+          var items = [];
+          collection.apply(function(item) { items.push(item); });
+          return items;
+        }
+        try {
+          return Array.from(collection);
+        } catch (e) {
+          return [];
+        }
+      }
+      function parseFilterDate(dateString) {
+        if (!dateString || typeof dateString !== "string") { return null; }
+        var parsed = new Date(dateString);
+        if (isNaN(parsed.getTime())) { return null; }
+        return parsed;
+      }
+      function getProjectDateTimestamp(project, getter) {
+        var value = safe(function() { return getter(project); });
+        if (!value || typeof value.getTime !== "function") { return null; }
+        var timestamp = value.getTime();
+        if (isNaN(timestamp)) { return null; }
+        return timestamp;
+      }
+      function taskStatusName(task) {
+        var status = safe(function() { return task.taskStatus; });
+        var statusText = String(status);
+        if (statusText.indexOf("Completed") !== -1) { return "completed"; }
+        if (statusText.indexOf("Dropped") !== -1) { return "dropped"; }
+        if (statusText.indexOf("Available") !== -1) { return "available"; }
+        if (statusText.indexOf("DueSoon") !== -1) { return "dueSoon"; }
+        if (statusText.indexOf("Next") !== -1) { return "next"; }
+        if (statusText.indexOf("Overdue") !== -1) { return "overdue"; }
+        if (statusText.indexOf("Blocked") !== -1) { return "blocked"; }
+        if (status === Task.Status.Completed) { return "completed"; }
+        if (status === Task.Status.Dropped) { return "dropped"; }
+        if (status === Task.Status.Available) { return "available"; }
+        if (status === Task.Status.DueSoon) { return "dueSoon"; }
+        if (status === Task.Status.Next) { return "next"; }
+        if (status === Task.Status.Overdue) { return "overdue"; }
+        if (status === Task.Status.Blocked) { return "blocked"; }
+        return "unknown";
+      }
+      function projectStatusName(project) {
+        var status = safe(function() { return project.status; });
+        var statusText = String(status);
+        if (statusText.indexOf("OnHold") !== -1) { return "onHold"; }
+        if (statusText.indexOf("Dropped") !== -1) { return "dropped"; }
+        if (statusText.indexOf("Done") !== -1) { return "done"; }
+        if (statusText.indexOf("Active") !== -1) { return "active"; }
+        if (status === Project.Status.OnHold) { return "onHold"; }
+        if (status === Project.Status.Dropped) { return "dropped"; }
+        if (status === Project.Status.Done) { return "done"; }
+        if (status === Project.Status.Active) { return "active"; }
+        return "unknown";
+      }
 
-      var app = Application('OmniFocus');
-      var doc = app.defaultDocument();
-      var projects = doc.flattenedProjects();
+      var statusFilter = (typeof request.statusFilter === "string") ? request.statusFilter.toLowerCase() : "active";
+      var includeTaskCounts = request.includeTaskCounts === true;
+      var reviewPerspective = request.reviewPerspective === true;
+      var reviewDueBefore = request.reviewDueBefore ? parseFilterDate(request.reviewDueBefore) : null;
+      var reviewDueAfter = request.reviewDueAfter ? parseFilterDate(request.reviewDueAfter) : null;
+      var reviewCutoff = reviewDueBefore || (reviewPerspective ? new Date() : null);
+      var completedAfter = request.completedAfter ? parseFilterDate(request.completedAfter) : null;
+      var completedBefore = request.completedBefore ? parseFilterDate(request.completedBefore) : null;
+      var completedOnly = request.completed === true;
+      var projects = toArray(safe(function() { return flattenedProjects; }));
+
+      if (reviewPerspective) {
+        projects = projects.filter(function(project) {
+          var statusName = projectStatusName(project);
+          return statusName !== "dropped" && statusName !== "done";
+        });
+      } else if (statusFilter !== "all") {
+        projects = projects.filter(function(project) {
+          var statusName = projectStatusName(project);
+          if (statusFilter === "active") { return statusName === "active"; }
+          if (statusFilter === "onhold" || statusFilter === "on_hold") { return statusName === "onHold"; }
+          if (statusFilter === "dropped") { return statusName === "dropped"; }
+          if (statusFilter === "done" || statusFilter === "completed") { return statusName === "done"; }
+          return true;
+        });
+      }
+
+      if (reviewCutoff || reviewDueAfter) {
+        projects = projects.filter(function(project) {
+          var nextReview = getProjectDateTimestamp(project, function(item) { return item.nextReviewDate; });
+          if (nextReview === null) { return false; }
+          if (reviewCutoff && nextReview > reviewCutoff.getTime()) { return false; }
+          if (reviewDueAfter && nextReview < reviewDueAfter.getTime()) { return false; }
+          return true;
+        });
+      }
+
+      if (completedOnly || completedAfter || completedBefore) {
+        projects = projects.filter(function(project) {
+          if (projectStatusName(project) !== "done") { return false; }
+          var completionDate = getProjectDateTimestamp(project, function(item) { return item.completionDate; });
+          if (completionDate === null) { return false; }
+          if (completedAfter && completionDate < completedAfter.getTime()) { return false; }
+          if (completedBefore && completionDate >= completedBefore.getTime()) { return false; }
+          return true;
+        });
+
+        projects.sort(function(lhs, rhs) {
+          var lhsDate = getProjectDateTimestamp(lhs, function(item) { return item.completionDate; }) || 0;
+          var rhsDate = getProjectDateTimestamp(rhs, function(item) { return item.completionDate; }) || 0;
+          return rhsDate - lhsDate;
+        });
+      }
+
       var total = projects.length;
       var slice = projects.slice(offset, offset + limit);
 
       var items = slice.map(function(p) {
-        var lastReviewDate = hasField("lastReviewDate") ? safe(function() { return p.lastReviewDate(); }) : null;
-        var nextReviewDate = hasField("nextReviewDate") ? safe(function() { return p.nextReviewDate(); }) : null;
-        var reviewInterval = hasField("reviewInterval") ? safe(function() { return p.reviewInterval(); }) : null;
+        var lastReviewDate = hasField("lastReviewDate") ? safe(function() { return p.lastReviewDate; }) : null;
+        var nextReviewDate = hasField("nextReviewDate") ? safe(function() { return p.nextReviewDate; }) : null;
+        var reviewInterval = hasField("reviewInterval") ? safe(function() { return p.reviewInterval; }) : null;
         var reviewIntervalPayload = null;
         if (reviewInterval) {
-          var steps = safe(function() { return reviewInterval.steps(); });
-          var unit = safe(function() { return reviewInterval.unit(); });
+          var steps = safe(function() { return reviewInterval.steps; });
+          var unit = safe(function() { return reviewInterval.unit; });
           reviewIntervalPayload = {
             steps: (typeof steps === "number" && isFinite(steps)) ? Math.trunc(steps) : null,
             unit: unit ? String(unit) : null
           };
         }
-
-        return {
-          id: hasField("id") ? String(safe(function() { return p.id(); }) || "") : null,
-          name: hasField("name") ? String(safe(function() { return p.name(); }) || "") : null,
-          note: hasField("note") ? safe(function() { return p.note(); }) : null,
-          status: hasField("status") ? String(safe(function() { return p.status(); }) || "") : null,
-          flagged: hasField("flagged") ? Boolean(safe(function() { return p.flagged(); })) : null,
+        var completionDate = hasField("completionDate") ? safe(function() { return p.completionDate; }) : null;
+        var item = {
+          id: hasField("id") ? String(safe(function() { return p.id.primaryKey; }) || "") : null,
+          name: hasField("name") ? String(safe(function() { return p.name; }) || "") : null,
+          note: hasField("note") ? safe(function() { return p.note; }) : null,
+          status: hasField("status") ? projectStatusName(p) : null,
+          flagged: hasField("flagged") ? Boolean(safe(function() { return p.flagged; })) : null,
           lastReviewDate: hasField("lastReviewDate") && lastReviewDate ? lastReviewDate.toISOString() : null,
           nextReviewDate: hasField("nextReviewDate") && nextReviewDate ? nextReviewDate.toISOString() : null,
-          reviewInterval: hasField("reviewInterval") ? reviewIntervalPayload : null
+          reviewInterval: hasField("reviewInterval") ? reviewIntervalPayload : null,
+          completionDate: hasField("completionDate") && completionDate ? completionDate.toISOString() : null
         };
+
+        if (includeTaskCounts || hasExplicitField("hasChildren") || hasExplicitField("nextTask") || hasExplicitField("isStalled")) {
+          var flattenedTasks = toArray(safe(function() { return p.flattenedTasks; }) || safe(function() { return p.flattenedTasks(); }));
+          if (includeTaskCounts) {
+            var available = 0;
+            var remaining = 0;
+            var completed = 0;
+            var dropped = 0;
+            for (var taskIndex = 0; taskIndex < flattenedTasks.length; taskIndex += 1) {
+              var taskStatus = taskStatusName(flattenedTasks[taskIndex]);
+              if (taskStatus === "completed") {
+                completed += 1;
+              } else if (taskStatus === "dropped") {
+                dropped += 1;
+              } else {
+                remaining += 1;
+                if (taskStatus === "available" || taskStatus === "next") {
+                  available += 1;
+                }
+              }
+            }
+            item.availableTasks = available;
+            item.remainingTasks = remaining;
+            item.completedTasks = completed;
+            item.droppedTasks = dropped;
+            item.totalTasks = flattenedTasks.length;
+          }
+          if (hasExplicitField("hasChildren")) {
+            item.hasChildren = flattenedTasks.length > 0;
+          }
+          var nextTaskValue = null;
+          var nextTaskResolved = false;
+          if (hasExplicitField("nextTask")) {
+            var nextTask = requireDefinedProjectField("nextTask", function() { return p.nextTask; });
+            nextTaskValue = nextTask;
+            nextTaskResolved = true;
+            item.nextTask = nextTask ? {
+              id: String(safe(function() { return nextTask.id.primaryKey; }) || ""),
+              name: String(safe(function() { return nextTask.name; }) || "")
+            } : null;
+          }
+          if (hasExplicitField("isStalled")) {
+            var nextTaskForStall = nextTaskResolved ? nextTaskValue : requireDefinedProjectField("nextTask", function() { return p.nextTask; });
+            var singletonRawForStall = requireBooleanProjectField("containsSingletonActions", function() { return p.containsSingletonActions; });
+            var isSingleActionsForStall = Boolean(singletonRawForStall);
+            item.isStalled = flattenedTasks.length > 0 && !nextTaskForStall && !isSingleActionsForStall;
+          }
+        }
+        if (hasExplicitField("containsSingletonActions")) {
+          item.containsSingletonActions = Boolean(requireBooleanProjectField("containsSingletonActions", function() { return p.containsSingletonActions; }));
+        }
+
+        return item;
       });
 
       var nextCursor = (offset + limit < total) ? String(offset + limit) : null;
-      return JSON.stringify({ items: items, nextCursor: nextCursor });
+      return JSON.stringify({ items: items, nextCursor: nextCursor, returnedCount: items.length, totalCount: total });
+    })();
+    """
+}
+
+private func listTagsScript(requestJSON: String) -> String {
+    let automationScript = listTagsOmniAutomationScript(requestJSON: requestJSON)
+    return """
+    (function() {
+      var app = Application('OmniFocus');
+      var script = \(jsStringLiteral(automationScript));
+      var result = app.evaluateJavascript(script);
+      if (Array.isArray(result)) {
+        if (result.length === 0 || result[0] === null || typeof result[0] === "undefined") {
+          return "";
+        }
+        return String(result[0]);
+      }
+      if (result === null || typeof result === "undefined") {
+        return "";
+      }
+      return String(result);
+    })();
+    """
+}
+
+private func listTagsOmniAutomationScript(requestJSON: String) -> String {
+    return """
+    (function() {
+      var request = \(requestJSON);
+      var limit = (request.page && request.page.limit) ? request.page.limit : 50;
+      var offset = 0;
+      if (request.page && request.page.cursor) {
+        var parsed = parseInt(request.page.cursor, 10);
+        if (!isNaN(parsed) && parsed >= 0) { offset = parsed; }
+      }
+
+      function safe(fn) {
+        try { return fn(); } catch (e) { return null; }
+      }
+      function requireTagSupported(label, fn) {
+        try {
+          var value = fn();
+          if (value === null || typeof value === "undefined") {
+            throw new Error("missing");
+          }
+          return value;
+        } catch (e) {
+          throw new Error("Unsupported Omni Automation tag field: " + label);
+        }
+      }
+      function toArray(collection) {
+        if (!collection) { return []; }
+        if (Array.isArray(collection)) { return collection; }
+        if (typeof collection.apply === "function") {
+          var items = [];
+          collection.apply(function(item) { items.push(item); });
+          return items;
+        }
+        try {
+          return Array.from(collection);
+        } catch (e) {
+          return [];
+        }
+      }
+      function tagStatusName(tag) {
+        var status = requireTagSupported("status", function() {
+          var value = safe(function() { return tag.status; });
+          if (value !== null && typeof value !== "undefined") { return value; }
+          return tag.status();
+        });
+        var statusText = String(status);
+        if (statusText.indexOf("OnHold") !== -1) { return "onHold"; }
+        if (statusText.indexOf("Dropped") !== -1) { return "dropped"; }
+        if (statusText.indexOf("Active") !== -1) { return "active"; }
+        if (typeof Tag !== "undefined" && Tag.Status) {
+          if (status === Tag.Status.OnHold) { return "onHold"; }
+          if (status === Tag.Status.Dropped) { return "dropped"; }
+          if (status === Tag.Status.Active) { return "active"; }
+        }
+        throw new Error("Unsupported Omni Automation tag status value");
+      }
+      function taskStatusName(task) {
+        var status = safe(function() { return task.taskStatus; });
+        var statusText = String(status);
+        if (statusText.indexOf("Completed") !== -1) { return "completed"; }
+        if (statusText.indexOf("Dropped") !== -1) { return "dropped"; }
+        if (statusText.indexOf("Available") !== -1) { return "available"; }
+        if (statusText.indexOf("DueSoon") !== -1) { return "dueSoon"; }
+        if (statusText.indexOf("Next") !== -1) { return "next"; }
+        if (statusText.indexOf("Overdue") !== -1) { return "overdue"; }
+        if (statusText.indexOf("Blocked") !== -1) { return "blocked"; }
+        if (status === Task.Status.Completed) { return "completed"; }
+        if (status === Task.Status.Dropped) { return "dropped"; }
+        if (status === Task.Status.Available) { return "available"; }
+        if (status === Task.Status.DueSoon) { return "dueSoon"; }
+        if (status === Task.Status.Next) { return "next"; }
+        if (status === Task.Status.Overdue) { return "overdue"; }
+        if (status === Task.Status.Blocked) { return "blocked"; }
+        return "unknown";
+      }
+      function isActionableTaskStatus(statusName) {
+        return statusName === "available" || statusName === "dueSoon" || statusName === "next" || statusName === "overdue";
+      }
+      function primaryKey(entity) {
+        return String(safe(function() { return entity.id.primaryKey; }) || "");
+      }
+      function allTags() {
+        function childTags(tag) {
+          return toArray(safe(function() { return tag.children; }) || safe(function() { return tag.children(); }));
+        }
+        function pushUnique(result, seen, item) {
+          var key = primaryKey(item);
+          if (key && seen[key]) { return; }
+          if (key) { seen[key] = true; }
+          result.push(item);
+        }
+        var flat = toArray(safe(function() { return flattenedTags; }) || safe(function() { return flattenedTags(); }));
+        if (flat.length > 0) {
+          var flatSeen = {};
+          var flatResult = [];
+          for (var flatIndex = 0; flatIndex < flat.length; flatIndex += 1) {
+            pushUnique(flatResult, flatSeen, flat[flatIndex]);
+          }
+          return flatResult;
+        }
+
+        var result = [];
+        var seen = {};
+        function visit(tag) {
+          pushUnique(result, seen, tag);
+          var children = childTags(tag);
+          for (var i = 0; i < children.length; i += 1) {
+            visit(children[i]);
+          }
+        }
+        var roots = toArray(safe(function() { return tags; }) || safe(function() { return tags(); }));
+        for (var i = 0; i < roots.length; i += 1) {
+          visit(roots[i]);
+        }
+        return result;
+      }
+      function tasksForTag(tag) {
+        function directTasks(currentTag) {
+          return toArray(safe(function() { return currentTag.tasks; }) || safe(function() { return currentTag.tasks(); }));
+        }
+        function flattenedTasksForTag(currentTag) {
+          return toArray(safe(function() { return currentTag.flattenedTasks; }) || safe(function() { return currentTag.flattenedTasks(); }));
+        }
+        function childTags(currentTag) {
+          return toArray(safe(function() { return currentTag.children; }) || safe(function() { return currentTag.children(); }));
+        }
+        var flattened = flattenedTasksForTag(tag);
+        if (flattened.length > 0) { return flattened; }
+
+        var result = [];
+        var seen = {};
+        function pushTask(task) {
+          var key = primaryKey(task);
+          if (key && seen[key]) { return; }
+          if (key) { seen[key] = true; }
+          result.push(task);
+        }
+        function visit(currentTag) {
+          var currentTasks = directTasks(currentTag);
+          for (var taskIndex = 0; taskIndex < currentTasks.length; taskIndex += 1) {
+            pushTask(currentTasks[taskIndex]);
+          }
+          var children = childTags(currentTag);
+          for (var childIndex = 0; childIndex < children.length; childIndex += 1) {
+            visit(children[childIndex]);
+          }
+        }
+        visit(tag);
+        return result;
+      }
+
+      var statusFilter = (typeof request.statusFilter === "string") ? request.statusFilter.toLowerCase() : "active";
+      var includeTaskCounts = request.includeTaskCounts === true;
+      var tagItems = allTags();
+
+      if (statusFilter !== "all") {
+        tagItems = tagItems.filter(function(tag) {
+          var statusName = tagStatusName(tag);
+          if (statusFilter === "active") { return statusName === "active"; }
+          if (statusFilter === "onhold" || statusFilter === "on_hold") { return statusName === "onHold"; }
+          if (statusFilter === "dropped") { return statusName === "dropped"; }
+          return true;
+        });
+      }
+
+      var total = tagItems.length;
+      var slice = tagItems.slice(offset, offset + limit);
+      var items = slice.map(function(tag) {
+        var item = {
+          id: String(safe(function() { return tag.id.primaryKey; }) || ""),
+          name: String(safe(function() { return tag.name; }) || ""),
+          status: tagStatusName(tag)
+        };
+
+        if (includeTaskCounts) {
+          var tagTasks = tasksForTag(tag);
+          var availableCount = 0;
+          var remainingCount = 0;
+          for (var taskIndex = 0; taskIndex < tagTasks.length; taskIndex += 1) {
+            var statusName = taskStatusName(tagTasks[taskIndex]);
+            if (statusName === "completed" || statusName === "dropped") {
+              continue;
+            }
+            remainingCount += 1;
+            if (isActionableTaskStatus(statusName)) {
+              availableCount += 1;
+            }
+          }
+          item.availableTasks = availableCount;
+          item.remainingTasks = remainingCount;
+          item.totalTasks = tagTasks.length;
+        }
+
+        return item;
+      });
+
+      var nextCursor = (offset + limit < total) ? String(offset + limit) : null;
+      return JSON.stringify({ items: items, nextCursor: nextCursor, returnedCount: items.length, totalCount: total });
     })();
     """
 }
