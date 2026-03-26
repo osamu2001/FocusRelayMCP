@@ -571,6 +571,10 @@
             !requiresCompletionSort &&
             filterState.availableOnly &&
             !hasAdvancedFilters;
+          const useStreamedFilteredPath =
+            !requiresCompletionSort &&
+            !useStreamedSimplePath &&
+            !Boolean(filter.search);
           const useCompletionTopKPath = requiresCompletionSort;
 
           if (useStreamedSimplePath) {
@@ -635,6 +639,78 @@
               afterStatusGateCount: afterStatusGateCount,
               afterAvailableGateCount: afterAvailableGateCount,
               durationMs: Date.now() - fastPathStart,
+              offset: safeOffset,
+              limit: limit,
+              hasMore: hasMore,
+              includeTotalCount: includeTotalCount,
+              totalCount: totalCount
+            });
+
+            const payloadStart = Date.now();
+            const items = pageTasks.map(t => taskToPayload(t, fields));
+            markListTasks("after_payload_map", {
+              returnedCount: items.length,
+              durationMs: Date.now() - payloadStart
+            });
+
+            const returnedCount = items.length;
+            const nextCursor = hasMore ? String(safeOffset + items.length) : null;
+            response.data = { items: items, nextCursor: nextCursor, returnedCount: returnedCount };
+            if (includeTotalCount) {
+              response.data.totalCount = totalCount;
+            }
+            if (listTasksDebug) {
+              listTasksDebug.totalTimingMs = Date.now() - start;
+              try {
+                writeJSON(basePath + "/logs/list_tasks_debug_" + requestId + ".json", listTasksDebug);
+              } catch (debugError) {}
+            }
+          } else if (useStreamedFilteredPath) {
+            const streamedPathStart = Date.now();
+            const pageTasks = [];
+            let matchedCount = 0;
+            let hasMore = false;
+            const needsKnownProject =
+              filterState.availableOnly ||
+              Boolean(filterState.projectFilter) ||
+              Boolean(projectView);
+
+            for (let i = 0; i < tasks.length; i += 1) {
+              const t = tasks[i];
+              const knownTaskStatus = taskStatus(t);
+              const knownProject = needsKnownProject ? (safe(() => t.containingProject) || null) : undefined;
+              if (!taskMatchesFilters(t, knownTaskStatus, knownProject, undefined)) {
+                continue;
+              }
+
+              if (matchedCount < safeOffset) {
+                matchedCount += 1;
+                continue;
+              }
+              if (pageTasks.length < limit) {
+                pageTasks.push(t);
+                matchedCount += 1;
+                continue;
+              }
+
+              if (!includeTotalCount) {
+                hasMore = true;
+                break;
+              }
+
+              matchedCount += 1;
+            }
+
+            const totalCount = includeTotalCount ? matchedCount : null;
+            if (includeTotalCount) {
+              hasMore = (safeOffset + pageTasks.length) < matchedCount;
+            }
+
+            markListTasks("after_stream_filtered_path", {
+              returnedCount: pageTasks.length,
+              scannedCount: tasks.length,
+              matchedCount: matchedCount,
+              durationMs: Date.now() - streamedPathStart,
               offset: safeOffset,
               limit: limit,
               hasMore: hasMore,
