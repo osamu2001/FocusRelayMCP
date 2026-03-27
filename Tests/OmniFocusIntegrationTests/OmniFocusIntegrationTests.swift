@@ -588,6 +588,43 @@ func bridgeProjectTaskCountsIncludedLive() throws {
 }
 
 @Test
+func bridgeProjectDerivedFieldsIncludedLive() throws {
+    let env = ProcessInfo.processInfo.environment
+    guard env["FOCUS_RELAY_BRIDGE_TESTS"] == "1" else {
+        return
+    }
+
+    let client = BridgeClient()
+    let page = try client.listProjects(
+        page: PageRequest(limit: 10),
+        statusFilter: "active",
+        includeTaskCounts: true,
+        reviewDueBefore: nil,
+        reviewDueAfter: nil,
+        reviewPerspective: false,
+        completed: nil,
+        completedBefore: nil,
+        completedAfter: nil,
+        fields: ["id", "name", "hasChildren", "nextTask", "containsSingletonActions", "isStalled"]
+    )
+
+    guard !page.items.isEmpty else {
+        return
+    }
+
+    #expect(page.items.allSatisfy { $0.hasChildren != nil })
+    #expect(page.items.allSatisfy { $0.containsSingletonActions != nil })
+    #expect(page.items.allSatisfy { $0.isStalled != nil })
+
+    for item in page.items {
+        if let nextTask = item.nextTask {
+            #expect(!nextTask.id.isEmpty)
+            #expect(!nextTask.name.isEmpty)
+        }
+    }
+}
+
+@Test
 func bridgeTagsPagingLive() throws {
     let env = ProcessInfo.processInfo.environment
     guard env["FOCUS_RELAY_BRIDGE_TESTS"] == "1" else {
@@ -602,6 +639,29 @@ func bridgeTagsPagingLive() throws {
         let second = try client.listTags(page: PageRequest(limit: 2, cursor: cursor), statusFilter: nil, includeTaskCounts: false)
         #expect(second.items.count <= 2)
     }
+}
+
+@Test
+func bridgeTagTaskCountsShapeLive() throws {
+    let env = ProcessInfo.processInfo.environment
+    guard env["FOCUS_RELAY_BRIDGE_TESTS"] == "1" else {
+        return
+    }
+
+    let client = BridgeClient()
+    let withoutCounts = try client.listTags(page: PageRequest(limit: 10), statusFilter: "active", includeTaskCounts: false)
+    #expect(withoutCounts.items.allSatisfy { $0.availableTasks == nil })
+    #expect(withoutCounts.items.allSatisfy { $0.remainingTasks == nil })
+    #expect(withoutCounts.items.allSatisfy { $0.totalTasks == nil })
+
+    let withCounts = try client.listTags(page: PageRequest(limit: 10), statusFilter: "active", includeTaskCounts: true)
+    guard !withCounts.items.isEmpty else {
+        return
+    }
+
+    #expect(withCounts.items.allSatisfy { $0.availableTasks != nil })
+    #expect(withCounts.items.allSatisfy { $0.remainingTasks != nil })
+    #expect(withCounts.items.allSatisfy { $0.totalTasks != nil })
 }
 
 // MARK: - Status Edge Case Tests
