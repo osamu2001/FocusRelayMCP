@@ -8,6 +8,9 @@ Scope:
 - `Sources/OmniFocusAutomation/OmniFocusAutomation.swift`
 - Any future query-engine helper that reads OmniFocus data
 
+Workflow companion:
+- [`docs/query-change-checklist.md`](./query-change-checklist.md)
+
 Primary source:
 
 - [OmniFocus Omni Automation index](https://omni-automation.com/omnifocus/index.html)
@@ -104,8 +107,10 @@ Do not use these as the primary production query path unless the official docs e
 
 Before merging query-engine changes, verify:
 
+- The change started from [`docs/query-change-checklist.md`](./query-change-checklist.md), not from a benchmark result alone.
 - Every OmniFocus collection/property used by the query path appears on the official docs pages above.
 - `task.taskStatus` is the source of truth for task state.
 - `project.status` is the source of truth for project state.
 - `list_projects` benchmark and parity scenarios use only contract-backed fields (`id`, `name`, `hasChildren`) plus documented task-derived counts.
+- Boundary semantics are covered by tests before benchmarking.
 - Benchmarks are not run unless parity and count-contract gates pass.
